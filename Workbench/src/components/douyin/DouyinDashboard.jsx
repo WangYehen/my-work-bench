@@ -392,7 +392,7 @@ function AccountTrend({ daily, summary }) {
                     fill="#f3effe"
                     fillOpacity={0.9}
                     connectNulls
-                    animationDuration={520}
+                    isAnimationActive={false}
                   />
                 );
               }
@@ -407,7 +407,7 @@ function AccountTrend({ daily, summary }) {
                     opacity={0.72}
                     radius={[4, 4, 0, 0]}
                     maxBarSize={16}
-                    animationDuration={420}
+                    isAnimationActive={false}
                   />
                 );
               }
@@ -423,7 +423,7 @@ function AccountTrend({ daily, summary }) {
                   dot={false}
                   activeDot={{ r: 4, fill: line.color, stroke: "#fff", strokeWidth: 2 }}
                   connectNulls
-                  animationDuration={520}
+                  isAnimationActive={false}
                 />
               );
             })}
