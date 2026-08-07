@@ -52,14 +52,6 @@ person_dashboard/
 
 推荐把这个仓库直接交给支持代码和终端操作的 AI Agent，例如 Codex、Claude Code 或 WorkBuddy。让 Agent 负责克隆、安装依赖、启动项目和处理后续的数据适配，你只需要把目标和数据需求讲清楚。
 
-把仓库地址发给 Agent：
-
-```text
-https://github.com/oyorf/person_dashboard
-```
-
-第一条指令可以直接写：
-
 ```text
 请打开这个仓库，先阅读 README 和 AGENTS.md，然后安装依赖并运行项目。
 先使用仓库自带的 synthetic demo，确认总览、知识星图、社媒洞察和抖音数据页面可以正常打开。
