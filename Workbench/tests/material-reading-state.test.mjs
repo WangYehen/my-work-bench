@@ -169,7 +169,15 @@ test("rejects a reading-state directory that escapes the Vault through a symlink
   t.after(() => rm(outside, { recursive: true, force: true }));
   const storageParent = path.join(vaultRoot, "10_raw", "my-thoughts");
   await mkdir(storageParent, { recursive: true });
-  await symlink(outside, path.join(storageParent, "reading-notes"));
+  try {
+    await symlink(outside, path.join(storageParent, "reading-notes"));
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("当前 Windows 环境未授权创建符号链接");
+      return;
+    }
+    throw error;
+  }
   const repository = createMaterialReadingStateRepository({ vaultRoot });
 
   await assert.rejects(

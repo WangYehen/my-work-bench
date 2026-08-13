@@ -188,7 +188,15 @@ test("rejects a reading-notes directory that escapes through a symlink", async (
   const vaultRoot = await makeVault(t);
   const outside = await mkdtemp(path.join(os.tmpdir(), "workbench-notes-outside-"));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  await symlink(outside, path.join(vaultRoot, "10_raw", "my-thoughts", "reading-notes"));
+  try {
+    await symlink(outside, path.join(vaultRoot, "10_raw", "my-thoughts", "reading-notes"));
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("当前 Windows 环境未授权创建符号链接");
+      return;
+    }
+    throw error;
+  }
   const repository = createReaderNotesRepository({ vaultRoot });
 
   await assert.rejects(

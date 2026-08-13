@@ -636,7 +636,15 @@ test("rejects an explanation store directory that escapes the Vault through a sy
   const { root } = await fixture(t);
   const outside = await mkdtemp(path.join(os.tmpdir(), "reader-explanations-outside-"));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  await symlink(outside, path.join(root, "state"));
+  try {
+    await symlink(outside, path.join(root, "state"));
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("当前 Windows 环境未授权创建符号链接");
+      return;
+    }
+    throw error;
+  }
   const service = makeService(
     root,
     path.join(root, "state", "reader-explanations.json"),

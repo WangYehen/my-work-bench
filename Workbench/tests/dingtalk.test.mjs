@@ -27,8 +27,8 @@ test("syncs only calendar events and rejects todo synchronization", async (t) =>
   const response = (value, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => value });
   const fetchImpl = async (url) => {
     calls.push(String(url));
-    if (String(url).endsWith("/v1.0/oauth2/userAccessToken")) return response({ accessToken: "user-token", refreshToken: "refresh-token", expireIn: 7200 });
-    if (String(url).endsWith("/v1.0/oauth2/accessToken")) return response({ accessToken: "app-token", expireIn: 7200 });
+    if (String(url).endsWith("/v1.0/oauth2/userAccessToken")) return response({ accessToken: "utoken", refreshToken: "rtoken", expireIn: 7200 });
+    if (String(url).endsWith("/v1.0/oauth2/accessToken")) return response({ accessToken: "atoken", expireIn: 7200 });
     if (String(url).includes("/contact/users/me")) return response({ unionId: "union-1" });
     if (String(url).includes("/calendar/users/")) return response({ events: [] });
     return response({}, 404);
