@@ -8,7 +8,7 @@ const MAX_STORE_BYTES = 4 * 1024 * 1024;
 const OAUTH_SESSION_MS = 10 * 60 * 1000;
 const APP_TOKEN_REFRESH_WINDOW_MS = 2 * 60 * 1000;
 const DEFAULT_SYNC_INTERVAL_MS = 60 * 60 * 1000;
-const SYNC_RESOURCES = new Set(["events", "todos"]);
+const SYNC_RESOURCES = new Set(["events"]);
 
 export class DingTalkServiceError extends Error {
   constructor(code, message, details = undefined) {
@@ -174,7 +174,7 @@ export function createDingTalkService({ config: suppliedConfig = {}, stateDirect
     fail("DINGTALK_USER_REQUEST_FAILED", lastDetails?.message || lastDetails?.code || `钉钉未返回当前用户标识（字段：${Object.keys(lastDetails || {}).join(",") || "无"}）。`, lastDetails);
   }
   async function apiEvents(from, to) {
-    const state = await readState(); const token = await accessToken(state); const userId = await resolveUserId(token);
+    const state = await readState(); const userToken = await accessToken(state); const userId = await resolveUserId(userToken); const token = await appAccessToken();
     const events = [];
     let nextToken = null;
     for (let page = 0; page < 20; page += 1) {
@@ -198,8 +198,9 @@ export function createDingTalkService({ config: suppliedConfig = {}, stateDirect
       const response = await fetchImpl(`${config.apiBaseUrl}/v1.0/todo/users/${encodeURIComponent(userId)}/org/tasks/query`, { method: "POST", headers: { "x-acs-dingtalk-access-token": token, "Content-Type": "application/json" }, body: JSON.stringify({ maxResults: 100, ...(nextToken ? { nextToken } : {}) }) });
       if (!response.ok) { let details = null; try { details = await response.json(); } catch {} if (response.status === 401) fail("DINGTALK_TOKEN_EXPIRED", "钉钉授权已过期，请重新连接。", details); fail("DINGTALK_TODO_REQUEST_FAILED", details?.message || details?.code || "无法读取钉钉待办。", details); }
       const value = await response.json();
-      todos.push(...(value.todoCards || value.tasks || value.items || []));
-      const currentToken = value.nextToken || value.next_token || null;
+      const result = value.result || value.data || value;
+      todos.push(...(result.todoCards || result.tasks || result.items || result.list || []));
+      const currentToken = result.nextToken || result.next_token || value.nextToken || value.next_token || null;
       if (!currentToken || currentToken === nextToken) break;
       nextToken = currentToken;
     }
@@ -207,12 +208,11 @@ export function createDingTalkService({ config: suppliedConfig = {}, stateDirect
   }
   function localDate(value) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`; }
   function currentMonthRange() { const current = now(); return { from: localDate(new Date(current.getFullYear(), current.getMonth(), 1)), to: localDate(new Date(current.getFullYear(), current.getMonth() + 1, 0)) }; }
-  function normalizeResources(resources) { const values = resources == null ? ["events", "todos"] : Array.isArray(resources) ? resources : [resources]; const result = [...new Set(values.map(String))]; if (!result.length || result.some((resource) => !SYNC_RESOURCES.has(resource))) fail("DINGTALK_INVALID_SYNC_RESOURCES", "钉钉同步资源无效。"); return result; }
+  function normalizeResources(resources) { const values = resources == null ? ["events"] : Array.isArray(resources) ? resources.filter((resource) => resource !== "todos") : [resources]; const result = [...new Set(values.map(String))]; if (!result.length || result.some((resource) => !SYNC_RESOURCES.has(resource))) fail("DINGTALK_INVALID_SYNC_RESOURCES", "当前仅支持钉钉日程同步。"); return result; }
   async function performSync({ resources, from, to }) {
     const attemptedAt = now().toISOString();
     const outcomes = {};
     if (resources.includes("events")) { try { outcomes.events = { data: await withTokenRetry(() => apiEvents(from, to)), successAt: now().toISOString() }; } catch (error) { outcomes.events = { error }; } }
-    if (resources.includes("todos")) { try { outcomes.todos = { data: await withTokenRetry(() => apiTodos()), successAt: now().toISOString() }; } catch (error) { outcomes.todos = { error }; } }
     const state = await readState();
     state.sync = normalizeSyncState(state.sync);
     if (outcomes.events) {
@@ -236,6 +236,7 @@ export function createDingTalkService({ config: suppliedConfig = {}, stateDirect
     return { state, outcomes, failures };
   }
   function queueSync({ resources: requestedResources, from, to, throwOnError = true } = {}) {
+    requestedResources = Array.isArray(requestedResources) ? requestedResources.filter((resource) => resource !== "todos") : requestedResources === "todos" ? undefined : requestedResources;
     requireConfigured();
     const resources = normalizeResources(requestedResources);
     const range = currentMonthRange();
@@ -250,22 +251,21 @@ export function createDingTalkService({ config: suppliedConfig = {}, stateDirect
       if (throwOnError && result.failures.length) throw result.failures[0];
       const status = statusFrom(result.state);
       for (const resource of resources) status.sync[resource].syncing = false;
-      return { ...status, resources, from: rangeFrom, to: rangeTo, events: result.outcomes.events?.data, todos: result.outcomes.todos?.data };
+      return { ...status, resources, from: rangeFrom, to: rangeTo, events: result.outcomes.events?.data };
     });
     syncQueue = operation.catch(() => {});
     const flight = operation.finally(() => syncFlights.delete(key));
     syncFlights.set(key, flight);
     return flight;
   }
-  async function scheduledSync() { if (missingConfiguration(config).length) return; const state = await readState(); if (!state.connection?.token?.accessToken) return; await queueSync({ resources: ["events", "todos"], throwOnError: false }); }
+  async function scheduledSync() { if (missingConfiguration(config).length) return; const state = await readState(); if (!state.connection?.token?.accessToken) return; await queueSync({ resources: ["events"], throwOnError: false }); }
   const scheduler = startScheduler ? setInterval(() => { void scheduledSync().catch(() => {}); }, syncIntervalMs) : null;
   scheduler?.unref?.();
   if (startScheduler) void scheduledSync().catch(() => {});
   return {
     async status() { return statusFrom(await readState()); },
-    async todos() { requireConfigured(); return (await readState()).todos || []; },
     async startOAuth() { requireConfigured(); const state = randomUUID(); sessions.set(state, { expiresAt: now().getTime() + OAUTH_SESSION_MS }); const query = new URLSearchParams({ client_id: config.clientId, redirect_uri: config.redirectUri, response_type: "code", scope: "openid", state }); return { authorizationUrl: `${config.authorizeUrl}?${query}` }; },
-    async completeOAuth({ code, state: stateValue, error }) { requireConfigured(); if (error) fail("DINGTALK_OAUTH_DENIED", "钉钉授权未完成。"); const session = sessions.get(stateValue); sessions.delete(stateValue); if (!code || !session || session.expiresAt < now().getTime()) fail("DINGTALK_OAUTH_STATE_INVALID", "钉钉授权会话已失效，请重新连接。"); const current = await readState(); const token = await requestToken({ grantType: "authorization_code", code }); await tokenManager.saveUserExchange("local", token); current.connection = { connectedAt: now().toISOString(), code: text(code, 8192), token: await tokenManager.getUserAccessToken("local") }; current.sync = normalizeSyncState(current.sync); current.sync.lastError = null; await writeState(current); await queueSync({ resources: ["events", "todos"], throwOnError: false }); return statusFrom(await readState()); },
+    async completeOAuth({ code, state: stateValue, error }) { requireConfigured(); if (error) fail("DINGTALK_OAUTH_DENIED", "钉钉授权未完成。"); const session = sessions.get(stateValue); sessions.delete(stateValue); if (!code || !session || session.expiresAt < now().getTime()) fail("DINGTALK_OAUTH_STATE_INVALID", "钉钉授权会话已失效，请重新连接。"); const current = await readState(); const token = await requestToken({ grantType: "authorization_code", code }); await tokenManager.saveUserExchange("local", token); current.connection = { connectedAt: now().toISOString(), code: text(code, 8192), token: await tokenManager.getUserAccessToken("local") }; current.sync = normalizeSyncState(current.sync); current.sync.lastError = null; await writeState(current); await queueSync({ resources: ["events"], throwOnError: false }); return statusFrom(await readState()); },
     async sync(options = {}) { return queueSync(options); },
     async list({ from, to } = {}) { const state = await readState(); return state.events.filter((event) => (!from || event.startAt.slice(0, 10) >= from) && (!to || event.startAt.slice(0, 10) <= to)); },
   };

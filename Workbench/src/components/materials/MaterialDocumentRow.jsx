@@ -1,5 +1,6 @@
 import {
   IconBookmark,
+  IconBookUpload,
   IconClock,
   IconFileText,
   IconUnlink,
@@ -53,6 +54,18 @@ export function MaterialDocumentRow({
         {showQueuedAt && item.queuedAt ? "加入 " : "更新 "}
         {formatCompactDate(date, false)}
       </span>
+
+      {item.previewKind === "markdown" || item.previewKind === "text" ? (
+        <button
+          aria-label={`进入“${item.title}”的 Wiki 审查`}
+          className="material-wiki-button"
+          onClick={() => onOpen({ ...item, readerContext: { initialTab: "ingest" } })}
+          type="button"
+        >
+          <IconBookUpload aria-hidden="true" size={16} />
+          <span>{item.wikiReferences?.length ? "已关联 Wiki" : "进入 Wiki"}</span>
+        </button>
+      ) : null}
 
       <button
         aria-label={item.isQueued ? `将“${item.title}”移出待看` : `将“${item.title}”加入待看`}

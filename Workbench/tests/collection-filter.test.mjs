@@ -25,3 +25,9 @@ test("other collection kinds retain their existing group contracts", () => {
   assert.equal(collectionItemMatchesGroup("wiki", { type: "framework" }, "framework"), true);
   assert.equal(collectionItemMatchesGroup("content", { status: "selected" }, "selected"), true);
 });
+
+test("Wiki unlabeled group matches documents without a type", () => {
+  assert.equal(collectionItemMatchesGroup("wiki", { type: null }, "unlabeled"), true);
+  assert.equal(collectionItemMatchesGroup("wiki", { type: "" }, "unlabeled"), true);
+  assert.equal(collectionItemMatchesGroup("wiki", { type: "concept" }, "unlabeled"), false);
+});

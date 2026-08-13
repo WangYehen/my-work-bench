@@ -694,6 +694,51 @@
   transition: background 160ms var(--ease), transform 160ms var(--ease);
 }
 
+.graph-inspector__sources {
+  display: grid;
+  gap: 7px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.graph-inspector__sources > span {
+  color: var(--ink-faint);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.graph-inspector__sources button {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  text-align: left;
+}
+
+.graph-inspector__sources button:hover {
+  border-color: var(--accent-soft);
+}
+
+.graph-inspector__sources button span {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-inspector__sources button small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .graph-inspector__open:hover {
   background: var(--accent-strong);
   transform: translateY(-1px);

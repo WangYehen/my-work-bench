@@ -4,6 +4,25 @@ import test from "node:test";
 
 import { buildWeeklyReport, workSnapshot } from "../src/data/work-management.js";
 
+test("DingTalk pages read cache on entry and expose unified manual sync", async () => {
+  const [meetings, workManagement, api, service] = await Promise.all([
+    readFile(new URL("../src/pages/MeetingsPage.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/pages/WorkManagementPage.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/api.js", import.meta.url), "utf8"),
+    readFile(new URL("../server/dingtalk.mjs", import.meta.url), "utf8"),
+  ]);
+  assert.match(api, /export function syncDingTalk/);
+  assert.match(meetings, /syncDingTalk\(\{ \.\.\.range, resources: \["events"\] \}\)/);
+  assert.equal(workManagement.includes("同步钉钉"), false);
+  assert.match(meetings, /自动同步：每 1 小时/);
+  assert.equal(workManagement.includes("自动同步：每 1 小时"), false);
+  assert.equal(meetings.includes("setInterval"), false);
+  assert.equal(meetings.includes("initialLoad"), false);
+  assert.equal(workManagement.includes("loadDingTalkTodos"), false);
+  assert.match(service, /DEFAULT_SYNC_INTERVAL_MS = 60 \* 60 \* 1000/);
+  assert.match(service, /setInterval\(\(\) => \{ void scheduledSync\(\)/);
+});
+
 test("work management demo keeps each requested work module populated", () => {
   assert.ok(workSnapshot.tasks.length > 0);
   assert.ok(workSnapshot.focus.length > 0);

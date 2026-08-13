@@ -36,7 +36,7 @@ const serviceDefinitions = {
     icon: IconBrandDaysCounter,
     route: "/meetings",
     docs: "https://open.dingtalk.com/document/orgapp-server/obtain-user-token",
-    steps: ["在钉钉开放平台创建应用", "把配置片段加入 Workbench/.env", "重启 Workbench 后重新检测", "在会议日程页面完成钉钉授权"],
+    steps: ["在钉钉开放平台创建应用", "把配置片段加入 Workbench/.env", "重启 Workbench 后重新检测", "在系统状态页完成钉钉日程授权"],
     env: "DINGTALK_CLIENT_ID=your-dingtalk-app-key\nDINGTALK_CLIENT_SECRET=your-dingtalk-app-secret\nDINGTALK_OAUTH_REDIRECT_URI=http://127.0.0.1:5174/api/dingtalk/oauth/callback\nDINGTALK_TOKEN_ENCRYPTION_KEY=your-32-byte-base64-key",
   },
   teamReports: {
@@ -75,10 +75,12 @@ function StatusBadge({ status }) {
   return <span className={`integration-status integration-status--${tone}`}><span className="status-dot" />{label}</span>;
 }
 
-function ServiceCard({ service, item, expanded, onToggle, onCopy, onTest, testing }) {
+function ServiceCard({ service, item, expanded, onToggle, onCopy, onTest, onAuthorize, authorizeLabel, testing, authBusy }) {
   const Icon = service.icon;
   const missing = item?.missing || [];
-  return <article className={`integration-card${expanded ? " is-expanded" : ""}`}>
+  const calendarAuthorize = onAuthorize;
+  const calendarAuthorizeLabel = authorizeLabel || (item?.status === "connected" ? "重新授权日程" : "连接钉钉日程");
+  return <article className={`integration-card${expanded ? " is-expanded" : ""}`} data-service={calendarAuthorize ? "dingtalk-calendar" : undefined}>
     <button className="integration-card__head" onClick={onToggle} type="button" aria-expanded={expanded}>
       <span className="integration-card__icon"><Icon size={19} /></span>
       <span className="integration-card__identity"><span className="eyebrow">{service.eyebrow}</span><strong>{service.title}</strong><small>{service.description}</small></span>
@@ -90,8 +92,9 @@ function ServiceCard({ service, item, expanded, onToggle, onCopy, onTest, testin
       <ol className="integration-steps">{service.steps.map((step, index) => <li key={step} className={index === 0 && missing.length ? "is-current" : ""}><span>{index + 1}</span>{step}</li>)}</ol>
       <div className="integration-code"><div><strong>配置片段</strong><small>复制后粘贴到 Workbench/.env，不会在网页中保存密钥。</small></div><button className="work-link" onClick={onCopy} type="button"><IconClipboard size={14} />复制</button><pre><code>{service.env}</code></pre></div>
       <div className="integration-card__actions">
+        {calendarAuthorize ? <button className="work-button work-button--primary" disabled={authBusy || !item?.configured} onClick={() => void calendarAuthorize()} type="button"><IconLink size={15} />{calendarAuthorizeLabel}</button> : null}
         {service.docs ? <a className="work-button" href={service.docs} rel="noreferrer" target="_blank"><IconExternalLink size={15} />官方说明</a> : null}
-        {service.title === "DeepSeek" ? <button className="work-button" disabled={testing || !item?.configured} onClick={onTest} type="button"><IconRefresh size={15} />{testing ? "测试中…" : "测试连接"}</button> : <a className="work-button work-button--primary" href={service.route}><IconLink size={15} />前往授权</a>}
+        {service.title === "DeepSeek" ? <button className="work-button" disabled={testing || !item?.configured} onClick={onTest} type="button"><IconRefresh size={15} />{testing ? "测试中…" : "测试连接"}</button> : calendarAuthorize ? null : <a className="work-button work-button--primary" href={service.route}><IconLink size={15} />前往授权</a>}
       </div>
     </div> : null}
   </article>;
@@ -100,7 +103,7 @@ function ServiceCard({ service, item, expanded, onToggle, onCopy, onTest, testin
 export function SystemPage() {
   const [runtime, setRuntime] = useState({ data: null, source: "loading", error: null });
   const [integrations, setIntegrations] = useState({ data: null, source: "loading", error: null });
-  const [expanded, setExpanded] = useState("outlook");
+  const [expanded, setExpanded] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [testing, setTesting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -133,6 +136,7 @@ export function SystemPage() {
   const vault = runtime.data?.vault;
   const sync = runtime.data?.sync;
   const codex = runtime.data?.codex;
+  const handleCalendarAuthorize = async () => { setAuthBusy(true); setAuthError(""); try { const result = await startDingTalkOAuth(); if (!result?.authorizationUrl) throw new Error("钉钉日程授权地址生成失败"); globalThis.location.assign(result.authorizationUrl); } catch (error) { setAuthError(error.message || "钉钉日程授权失败"); setAuthBusy(false); } };
 
   const handleRefresh = async () => { setRefreshing(true); setNotice(""); try { await refreshVault(); await loadAll(); setNotice("配置和 Vault 状态已更新。"); } catch (error) { setNotice(error.message || "刷新失败，请稍后重试。"); } finally { setRefreshing(false); } };
   const copy = async (text) => { await navigator.clipboard?.writeText(text); setNotice("配置片段已复制，请粘贴到 Workbench/.env。"); };
@@ -145,7 +149,7 @@ export function SystemPage() {
     <PageHeader eyebrow="SYSTEM / SERVICES" title="服务配置" description="集中检查第三方服务、复制本地配置并完成授权。密钥只保留在你的本机配置中。" />
     {notice ? <div className="work-notice" role="status"><IconShieldLock size={17} /><span>{notice}</span></div> : null}
     <section className="integration-summary panel"><div><span className="eyebrow">INTEGRATION HEALTH</span><h2 className="panel__title">第三方服务</h2><p>已配置 {configuredCount}/{serviceList.length} 项。先完成配置，再前往对应功能页授权。</p></div><button className="work-button" disabled={refreshing} onClick={handleRefresh} type="button"><IconRefresh size={15} />{refreshing ? "检测中…" : "重新检测"}</button></section>
-    <section className="integration-list" aria-label="第三方服务配置列表">{serviceList.map(([key, service]) => <ServiceCard key={key} service={service} item={services[key]} expanded={expanded === key} onToggle={() => setExpanded(expanded === key ? "" : key)} onCopy={() => copy(service.env)} onTest={key === "deepseek" ? testDeepSeek : undefined} testing={key === "deepseek" && testing} />)}</section>
+    <section className="integration-list" aria-label="第三方服务配置列表">{serviceList.map(([key, service]) => <ServiceCard key={key} service={service} item={services[key]} expanded={expanded === key} onToggle={() => setExpanded(expanded === key ? "" : key)} onCopy={() => copy(service.env)} onAuthorize={key === "dingtalkCalendar" ? handleCalendarAuthorize : undefined} authorizeLabel={services[key]?.status === "connected" ? "重新授权日程" : "连接钉钉日程"} onTest={key === "deepseek" ? testDeepSeek : undefined} testing={key === "deepseek" && testing} authBusy={authBusy} />)}</section>
     <section className="panel system-team-auth"><div className="panel__head"><div><span className="eyebrow">TEAM / DINGTALK</span><h2 className="panel__title">团队日报身份</h2></div></div>{teamUser ? <div className="system-team-auth__signed-in"><div><strong>{teamUser.displayName || teamUser.username}</strong><span>{teamUser.departmentName || "未同步部门"} · {teamUser.role === "admin" ? "管理员" : "成员"}</span></div><button className="work-button" disabled={authBusy} onClick={handleTeamLogout} type="button">退出钉钉登录</button></div> : <div className="system-team-auth__form"><p>使用钉钉组织账号登录后，才能提交或查看团队日报。</p><div className="report-hero__actions"><button className="work-button" disabled={authBusy} onClick={handleTeamCheck} type="button">检查连接</button><button className="work-button work-button--primary" disabled={authBusy} onClick={handleTeamLogin} type="button">{authBusy ? "处理中…" : "使用钉钉登录"}</button></div></div>}{authError ? <div className="work-error" role="alert">{authError}</div> : null}</section>
     <div className="system-grid"><div className="panel"><div className="panel__head"><h2 className="panel__title">Vault 索引</h2></div><div><div className="system-kv"><dt>标签</dt><dd>{vault?.label || "本地 Vault"}</dd></div><div className="system-kv"><dt>文档数</dt><dd>{vault?.documents ?? "—"}</dd></div><div className="system-kv"><dt>索引时间</dt><dd>{formatFullDate(vault?.generatedAt)}</dd></div><div className="system-kv"><dt>错误数</dt><dd>{vault?.errors ?? "—"}</dd></div><div className="system-kv"><dt>文件同步</dt><dd>{sync?.status || "—"}</dd></div></div></div><div className="panel"><div className="panel__head"><h2 className="panel__title">Codex 运行时</h2></div><div><div className="system-kv"><dt>可用性</dt><dd>{codex?.available ? "可用" : "不可用"}</dd></div><div className="system-kv"><dt>来源</dt><dd>{codex?.source || "—"}</dd></div></div></div></div>
   </div>;

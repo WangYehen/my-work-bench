@@ -8,7 +8,7 @@ import { PageHeader } from "../components/PageHeader";
 import { DateTimePicker } from "../components/WorkbenchCalendar";
 import { buildWeeklyReport, workSnapshot } from "../data/work-management";
 import {
-  clearCompletedTasks, createTask, deleteTask, loadDingTalkStatus, loadDingTalkTodos, loadOutlookTodos, loadTasks, syncDingTalk,
+  clearCompletedTasks, createTask, deleteTask, loadOutlookTodos, loadTasks,
   updateTask, generateWeeklyAiSummary, loadWeeklyFocus, createWeeklyFocus,
   updateWeeklyFocus, deleteWeeklyFocus, attachTaskToWeeklyFocus, detachTaskFromWeeklyFocus,
 } from "../lib/api";
@@ -66,9 +66,6 @@ function TaskRow({ task, onToggle, onEdit, onDelete, pending }) {
 
 function TodoModule() {
   const [tasks, setTasks] = useState([]);
-  const [dingTalkTasks, setDingTalkTasks] = useState([]);
-  const [dingTalkError, setDingTalkError] = useState("");
-  const [dingTalkStatus, setDingTalkStatus] = useState(null);
   const [filter, setFilter] = useState("all");
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -86,20 +83,18 @@ function TodoModule() {
       return "钉钉待办接口仍拒绝访问，请确认 Todo.Todo.Read 已开通，并重新授权当前账号。";
     }
     if (failure?.code === "DINGTALK_APP_TOKEN_REQUEST_FAILED") return "钉钉应用令牌获取失败，请检查 AppKey 与 AppSecret。";
+    if (failure?.code === "DINGTALK_TODO_REQUEST_FAILED" && failure?.details?.status === 403) return "钉钉待办接口拒绝访问，请确认当前账号已授权 Todo.Todo.Read 权限。";
     return "钉钉待办暂时无法读取，请检查应用权限和授权状态。";
   };
   const refresh = () => loadTasks().then((data) => setTasks(data.items || [])).catch((err) => setError(err.message || "任务加载失败"));
   useEffect(() => { refresh(); }, []);
-  useEffect(() => { let active = true; const syncTodos = async () => { try { await syncDingTalk({ resources: ["todos"] }); } catch (failure) { if (active) setDingTalkError(describeDingTalkTodoError(failure)); } const [result, statusResult] = await Promise.all([loadDingTalkTodos(), loadDingTalkStatus()]); if (!active) return; setDingTalkTasks(result.data?.items || result.items || []); setDingTalkStatus(statusResult.data || statusResult); if (result.error) setDingTalkError(describeDingTalkTodoError(result.error)); }; void syncTodos(); return () => { active = false; }; }, []);
-  const allTasks = useMemo(() => [...tasks, ...dingTalkTasks], [tasks, dingTalkTasks]);
+  const allTasks = tasks;
   const visible = useMemo(() => allTasks.filter((task) => filter === "all" || task.status === filter), [allTasks, filter]);
   const remaining = allTasks.filter((task) => task.status === "open").length;
   const run = async (action) => { setPending(true); setError(""); try { await action(); await refresh(); } catch (err) { setError(err.message || "操作失败"); } finally { setPending(false); } };
   const save = (payload) => run(async () => { if (editing) await updateTask(editing.id, payload); else await createTask(payload); setEditing(null); setAdding(false); });
   const remove = (task) => { if (window.confirm(`确认删除“${task.title}”吗？`)) run(() => deleteTask(task.id)); };
   return <>
-    {dingTalkError && <div className="work-error" role="status">{dingTalkError}</div>}
-    {!dingTalkError && dingTalkStatus?.connected && <div className="work-notice"><span className="status-dot status-dot--ok" /><div><strong>钉钉待办自动同步已开启</strong><span>{dingTalkStatus.sync?.todos?.lastSuccessAt ? `最近同步：${new Date(dingTalkStatus.sync.todos.lastSuccessAt).toLocaleString("zh-CN")} · 每 1 小时自动同步` : "进入页面时同步，并每 1 小时自动同步"}</span></div></div>}
     <div className="work-summary-strip"><div className="work-summary-strip__count"><strong>{remaining}</strong><span>项待完成</span></div><span className="work-summary-strip__hint">今天优先处理 P0 事项</span><button className="work-button work-button--primary" onClick={() => { setAdding(true); setEditing(null); }} type="button"><IconPlus size={15} />新增待办</button></div>
     {(adding || editing) && <TaskForm initial={editing || emptyForm} busy={pending} onSubmit={save} onCancel={() => { setAdding(false); setEditing(null); }} />}
     <div className="todo-toolbar"><div className="todo-filters">{[["all", "全部"], ["open", "未完成"], ["completed", "已完成"]].map(([key, label]) => <button className={filter === key ? "is-active" : ""} key={key} onClick={() => setFilter(key)} type="button">{label}</button>)}</div><button className="work-link" disabled={pending || !tasks.some((task) => task.status === "completed")} onClick={() => window.confirm("确认清除全部已完成任务吗？") && run(clearCompletedTasks)} type="button"><IconTrash size={14} />清除已完成</button></div>

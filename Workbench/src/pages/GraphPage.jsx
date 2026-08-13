@@ -262,6 +262,7 @@ export function GraphPage({ onOpenDocument }) {
           <div className="graph-stage__totals">
             <span><b>{data.stats.nodeCount}</b> 页面</span>
             <span><b>{data.stats.edgeCount}</b> 双链</span>
+            <span><b>{data.stats.materialNodeCount ?? 0}</b> 素材证据</span>
             <span><b>{data.stats.isolatedCount}</b> 孤岛</span>
           </div>
           <p>拖拽 · 滚轮缩放 · 双击阅读</p>
@@ -422,6 +423,30 @@ export function GraphPage({ onOpenDocument }) {
             {(selected.tags || []).length > 0 ? (
               <div className="graph-inspector__tags">
                 {selected.tags.slice(0, 6).map((tag) => <span key={tag}>#{tag}</span>)}
+              </div>
+            ) : null}
+
+            {selected.layer === "wiki" && (selected.sourceRefs || []).length > 0 ? (
+              <div className="graph-inspector__sources">
+                <span className="mono">EVIDENCE SOURCES</span>
+                {selected.sourceRefs.map((source) => (
+                  <button key={source.id} onClick={() => onOpenDocument?.(source.id)} type="button">
+                    <span>{source.title}</span>
+                    <small>{source.path}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {selected.layer === "raw" && (selected.wikiReferences || []).length > 0 ? (
+              <div className="graph-inspector__sources">
+                <span className="mono">USED BY WIKI</span>
+                {selected.wikiReferences.map((reference) => (
+                  <button key={reference.id} onClick={() => onOpenDocument?.(reference.id)} type="button">
+                    <span>{reference.title}</span>
+                    <small>{reference.path}</small>
+                  </button>
+                ))}
               </div>
             ) : null}
 

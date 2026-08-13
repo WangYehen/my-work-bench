@@ -62,6 +62,7 @@ test("maps changed paths to the smallest relevant invalidation scopes", () => {
   );
   assert.deepEqual(affectedScopesForPaths(["10_raw/douyin/snapshot.csv"]), [
     "douyin",
+    "graph",
     "materials",
     "overview",
     "recent",
@@ -71,6 +72,7 @@ test("maps changed paths to the smallest relevant invalidation scopes", () => {
   assert.deepEqual(
     affectedScopesForPaths(["10_raw/social-insights/example/report.md"]),
     [
+      "graph",
       "materials",
       "overview",
       "recent",

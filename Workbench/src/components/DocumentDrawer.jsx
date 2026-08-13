@@ -1157,6 +1157,7 @@ export function DocumentDrawer({ documentId, onClose, onNavigateDocument, readin
               document={currentDocument}
               contentHash={contentHash}
               canExplain={canExplain}
+              initialTab={readingContext?.initialTab}
               quoteDraft={quoteDraft}
               explanationDraft={explanationDraft}
               onQuoteConsumed={(key) => {

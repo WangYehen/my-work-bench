@@ -13,7 +13,7 @@ configured Vault root and emits a public document shape:
 ```text
 id, path, fileName, extension, previewKind, title, excerpt,
 layer, section, kind, type, status, createdAt, updatedAt,
-frontmatter, wikiLinks, backlinks, isArchived
+frontmatter, wikiLinks, backlinks, sourceRefs, wikiReferences, isArchived
 ```
 
 The adapter preserves `null` for unknown scalar values, uses empty arrays for
@@ -30,7 +30,7 @@ path, so the source path remains the stable join key.
 | `/materials` | `/api/materials`, `/api/materials/folder`, `/api/material-reading-queue` | folder metadata, `folders[]`, `recent[]`, `items[]`, queue state | `10_raw/**` except books and social-insight reports; folder names are data, not inferred categories |
 | `/books` | `/api/books` | `books[]`, each with `chapters.zh[]/en[]`, `chapterCount`, `languages[]`, optional `original` and cover | `10_raw/books/<book>/**`; chapter order comes from filenames; book/author/language only come from frontmatter when present |
 | `/topics` | `/api/collections/content` | `total`, `groups[]`, `items[]` with topic pipeline fields | `40_topics/**/*.md`; `pipelineStage`, filming and publication flags are derived only from explicit frontmatter/content markers already implemented by the indexer |
-| `/graph` | `/api/graph` | `nodes[]`, `edges[]`, `stats` | formal `wiki` pages and resolved Obsidian `[[links]]`; unresolved links are not fabricated into nodes |
+| `/graph` | `/api/graph` | `nodes[]`, `edges[]`, `stats` | formal `wiki` pages, referenced `10_raw` evidence nodes, resolved Wiki links, and typed source edges; unresolved sources are not fabricated into nodes |
 | Search palette | `/api/search` | `query`, `total`, `items[]` | indexed title, excerpt, path, section, tags, and links |
 | Document reader | `/api/documents/:id` | document metadata plus readable body/reader fields | ID/path lookup into the same indexed document; source Markdown remains unchanged |
 | Social insights pages | `/api/social-insights*` | report/trend-specific arrays and provenance | only `10_raw/social-insights/**` documents matching their explicit report types |
@@ -51,6 +51,7 @@ path, so the source path remains the stable join key.
 | frontmatter `created`/`updated` | `createdAt`/`updatedAt` | parsed when valid; filesystem timestamps are fallback metadata, not invented content |
 | frontmatter `sources`, `tags` | searchable metadata/provenance | arrays preserved; empty means no declared entries |
 | `[[target]]` links | graph edges/backlinks | resolve against relative path/basename; unresolved targets stay unresolved |
+| Wiki frontmatter `sources` and raw-material links | `sourceRefs` / `wikiReferences` | resolve to raw document IDs; unresolved sources receive `unresolved_source` and never fabricate graph nodes |
 | `30_self_media/douyin/current.json` | Douyin analytics | accepted only through the documented JSON gates; missing metrics stay `null` |
 
 ## Current Vault audit

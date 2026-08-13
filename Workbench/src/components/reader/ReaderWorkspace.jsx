@@ -433,6 +433,7 @@ export const ReaderWorkspace = forwardRef(function ReaderWorkspace({
   onQuoteConsumed,
   onExplanationConsumed,
   onJumpToAnchor,
+  initialTab = "notes",
   collapsed = false,
   onToggleCollapsed,
 }, ref) {
@@ -442,7 +443,7 @@ export const ReaderWorkspace = forwardRef(function ReaderWorkspace({
     document.layer === "raw" &&
     typeof readableBody === "string" &&
     Boolean(readableBody.trim());
-  const [tab, setTab] = useState("notes");
+  const [tab, setTab] = useState(initialTab);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notes, setNotes] = useState([]);
   const [notesVersion, setNotesVersion] = useState(0);
@@ -482,7 +483,7 @@ export const ReaderWorkspace = forwardRef(function ReaderWorkspace({
     setLoading(true);
     setLoadError(null);
     setPendingDelete(null);
-    setTab("notes");
+    setTab(initialTab === "ingest" && eligibleForIngest ? "ingest" : "notes");
 
     loadReaderNotes(document.id)
       .then((payload) => {
@@ -501,7 +502,7 @@ export const ReaderWorkspace = forwardRef(function ReaderWorkspace({
       timersRef.current.forEach((timer) => window.clearTimeout(timer));
       timersRef.current.clear();
     };
-  }, [document.id, updateNotes]);
+  }, [document.id, eligibleForIngest, initialTab, updateNotes]);
 
   const persistNote = useCallback((key) => {
     const existing = inFlightRef.current.get(key);

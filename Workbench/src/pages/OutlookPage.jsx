@@ -16,6 +16,7 @@ import {
   acceptOutlookConsent,
   disconnectOutlook,
   loadOutlookStatus,
+  loadOutlookAll,
   loadOutlookTodos,
   setOutlookMessageStatus,
   startOutlookOAuth,
@@ -34,6 +35,7 @@ function MailRow({ message, onStatus, pending, archived }) {
         <div><strong>{message.subject}</strong><span className="badge">{intentLabel[message.intent] || "需要复查"}</span></div>
         <small>{message.sender} · {formatFullDate(message.receivedAt)}</small>
         <p>{message.summary || "此邮件等待下次同步重新分类。"}</p>
+        {message.bodyText ? <details className="outlook-mail-row__body"><summary>查看邮件正文</summary><pre>{message.bodyText}</pre></details> : null}
       </div>
       <div className="outlook-mail-row__meta">
         <span className={`outlook-urgency outlook-urgency--${message.urgency || "low"}`}>{urgencyLabel[message.urgency] || "待重试"}</span>
@@ -77,16 +79,18 @@ export function OutlookPage() {
   const [status, setStatus] = useState(null);
   const [items, setItems] = useState([]);
   const [archive, setArchive] = useState([]);
+  const [all, setAll] = useState([]);
   const [view, setView] = useState("todos");
   const [accepted, setAccepted] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
 
   const refresh = useCallback(async () => {
-    const [nextStatus, nextTodos, nextArchive] = await Promise.all([loadOutlookStatus(), loadOutlookTodos(), loadOutlookTodos("archive")]);
+    const [nextStatus, nextTodos, nextArchive, nextAll] = await Promise.all([loadOutlookStatus(), loadOutlookTodos(), loadOutlookTodos("archive"), loadOutlookAll()]);
     setStatus(nextStatus.data);
     setItems(nextTodos.data.items || []);
     setArchive(nextArchive.data.items || []);
+    setAll(nextAll.data.items || []);
     if (nextStatus.error) setError(nextStatus.error.message);
     else if (nextStatus.data.lastError) setError(nextStatus.data.lastError);
   }, []);
@@ -113,7 +117,7 @@ export function OutlookPage() {
     window.location.assign(authorizationUrl);
   });
 
-  const list = view === "archive" ? archive : items;
+  const list = view === "archive" ? archive : view === "all" ? all : items;
 
   return (
     <div className="page page--work-management page--outlook">
@@ -125,7 +129,7 @@ export function OutlookPage() {
           <div><button className="work-button" disabled={pending} onClick={() => run(syncOutlook)} type="button"><IconRefresh size={15} />立即同步</button><button className="work-button" disabled={pending} onClick={() => run(disconnectOutlook)} type="button"><IconTrash size={15} />断开连接</button></div>
         </section>
         <section className="outlook-list panel">
-          <div className="panel__head"><div><span className="eyebrow">MAIL ACTIONS</span><h2 className="panel__title">{view === "archive" ? "已归档邮件" : "待处理邮件"}</h2></div><div className="outlook-tabs"><button className={view === "todos" ? "is-active" : ""} onClick={() => setView("todos")} type="button">待处理 {items.length}</button><button className={view === "archive" ? "is-active" : ""} onClick={() => setView("archive")} type="button"><IconArchive size={14} />归档 {archive.length}</button></div></div>
+          <div className="panel__head"><div><span className="eyebrow">MAIL ACTIONS</span><h2 className="panel__title">{view === "archive" ? "已归档邮件" : view === "all" ? "已解析邮件" : "待处理邮件"}</h2></div><div className="outlook-tabs"><button className={view === "todos" ? "is-active" : ""} onClick={() => setView("todos")} type="button">待处理 {items.length}</button><button className={view === "all" ? "is-active" : ""} onClick={() => setView("all")} type="button">全部 {all.length}</button><button className={view === "archive" ? "is-active" : ""} onClick={() => setView("archive")} type="button"><IconArchive size={14} />归档 {archive.length}</button></div></div>
           {list.length ? <div className="outlook-mail-list">{list.map((message) => <MailRow archived={view === "archive"} key={message.id} message={message} onStatus={(id, value) => run(() => setOutlookMessageStatus(id, value))} pending={pending} />)}</div> : <div className="report-empty"><IconMail size={24} /><strong>{view === "archive" ? "暂无归档邮件" : "暂无待处理邮件"}</strong><span>{view === "archive" ? "处理或忽略的邮件会保留在本地归档中。" : "同步后，识别为待办的邮件会显示在这里。"}</span></div>}
         </section>
       </>}

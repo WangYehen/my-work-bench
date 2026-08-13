@@ -9,5 +9,9 @@ export function collectionItemMatchesGroup(kind, item, groupKey) {
     return (item?.section || "root") === groupKey;
   }
 
+  if (groupKey === "unlabeled") {
+    return item?.type == null || item?.type === "";
+  }
+
   return item?.type === groupKey || item?.status === groupKey;
 }

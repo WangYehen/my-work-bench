@@ -1670,6 +1670,9 @@ h3 {
 .outlook-mail-row__copy strong { overflow: hidden; max-width: 510px; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .outlook-mail-row__copy small { display: block; margin-top: 5px; color: var(--ink-faint); font-size: 10.5px; }
 .outlook-mail-row__copy p { display: -webkit-box; overflow: hidden; margin: 6px 0 0; color: var(--ink-soft); font-size: 11.5px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.outlook-mail-row__body { margin-top: 8px; color: var(--ink-soft); font-size: 11px; }
+.outlook-mail-row__body summary { cursor: pointer; color: var(--accent-strong); }
+.outlook-mail-row__body pre { max-height: 240px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #faf9ff; white-space: pre-wrap; font: 11px/1.6 var(--font-sans); }
 
 .outlook-mail-row__meta { display: grid; justify-items: end; gap: 7px; min-width: 52px; }
 .outlook-urgency { padding: 4px 7px; border-radius: 6px; font: 10px var(--font-mono); }
@@ -7002,7 +7005,7 @@ h3 {
 
 .material-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 62px 142px 92px;
+  grid-template-columns: minmax(0, 1fr) 62px 142px 110px 92px;
   align-items: center;
   gap: 14px;
   min-height: 70px;
@@ -7117,6 +7120,27 @@ h3 {
   font-size: 11px;
   font-weight: 600;
   transition: border-color 0.15s var(--ease), background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.material-wiki-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid rgb(15 118 110 / 28%);
+  border-radius: var(--r-pill);
+  background: rgb(15 118 110 / 7%);
+  color: #0f766e;
+  font-size: 10.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.material-wiki-button:hover {
+  border-color: rgb(15 118 110 / 55%);
+  background: rgb(15 118 110 / 13%);
 }
 
 .material-queue-button:hover:not(:disabled) {
@@ -7302,7 +7326,7 @@ h3 {
 
 @media (max-width: 1080px) {
   .material-row {
-    grid-template-columns: minmax(0, 1fr) 54px 92px;
+    grid-template-columns: minmax(0, 1fr) 54px 92px 92px;
   }
 
   .material-row__date {
@@ -7472,7 +7496,7 @@ h3 {
   }
 
   .material-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 8px;
     min-height: 70px;
     padding: 10px 10px 10px 9px;
@@ -7480,6 +7504,17 @@ h3 {
 
   .material-row__type,
   .material-row__date {
+    display: none;
+  }
+
+  .material-wiki-button,
+  .material-queue-button {
+    min-width: 34px;
+    padding-inline: 8px;
+  }
+
+  .material-wiki-button span,
+  .material-queue-button span {
     display: none;
   }
 

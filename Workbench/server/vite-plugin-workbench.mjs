@@ -483,6 +483,7 @@ function collectionPayload(index, kind) {
       conflict: "争议问题",
       question: "复用问答",
     };
+    typeLabels.unlabeled = "未标注类型";
     const groups = Object.entries(index.wiki.countsByType)
       .sort((left, right) => right[1] - left[1])
       .map(([key, count]) => groupDefinition(key, typeLabels[key] ?? key, count));
@@ -685,23 +686,41 @@ function overviewPayload(index) {
   };
 }
 
-function graphPayload(index) {
-  const nodes = index.documents.filter(
+export function graphPayload(index) {
+  const wikiNodes = index.documents.filter(
     (document) =>
       document.layer === "wiki" &&
       document.kind === "knowledge" &&
       document.extension === "md",
   );
+  const wikiNodeIds = new Set(wikiNodes.map((node) => node.id));
+  const materialNodes = index.documents.filter(
+    (document) =>
+      document.layer === "raw" &&
+      document.extension === "md" &&
+      document.wikiReferences?.some((reference) => wikiNodeIds.has(reference.id)),
+  );
+  const nodes = [...wikiNodes, ...materialNodes];
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edgeMap = new Map();
-  for (const node of nodes) {
+  for (const node of wikiNodes) {
     for (const link of node.wikiLinks ?? []) {
       if (!link.resolvedId || !nodeIds.has(link.resolvedId)) continue;
       if (link.resolvedId === node.id) continue;
       const key = `${node.id}__${link.resolvedId}`;
       const existing = edgeMap.get(key);
       if (existing) existing.weight += 1;
-      else edgeMap.set(key, { source: node.id, target: link.resolvedId, weight: 1 });
+      else edgeMap.set(key, { source: node.id, target: link.resolvedId, weight: 1, relation: "link" });
+    }
+    for (const source of node.sourceRefs ?? []) {
+      if (!nodeIds.has(source.id)) continue;
+      const key = `${node.id}__source__${source.id}`;
+      edgeMap.set(key, {
+        source: node.id,
+        target: source.id,
+        weight: 1,
+        relation: "source",
+      });
     }
   }
   const degree = new Map();
@@ -719,12 +738,20 @@ function graphPayload(index) {
       nodeCount: nodes.length,
       edgeCount: edgeMap.size,
       isolatedCount: nodes.filter((node) => !degree.has(node.id)).length,
+      wikiNodeCount: wikiNodes.length,
+      materialNodeCount: materialNodes.length,
+      sourceEdgeCount: [...edgeMap.values()].filter((edge) => edge.relation === "source").length,
     },
-    typeCounts: index.wiki?.countsByType ?? {},
+    typeCounts: {
+      ...(index.wiki?.countsByType ?? {}),
+      ...(materialNodes.length ? { material: materialNodes.length } : {}),
+    },
     nodes: nodes.map((node) => ({
       id: node.id,
       title: node.title,
-      type: node.type ?? "other",
+      type: node.layer === "raw" ? "material" : node.type ?? "other",
+      layer: node.layer,
+      sourcePath: node.layer === "raw" ? node.path : null,
       status: node.status ?? null,
       section: node.section ?? null,
       tags: node.tags ?? [],
@@ -732,6 +759,8 @@ function graphPayload(index) {
       degree: degree.get(node.id) ?? 0,
       inDegree: inDegree.get(node.id) ?? 0,
       outDegree: outDegree.get(node.id) ?? 0,
+      sourceRefs: node.sourceRefs ?? [],
+      wikiReferences: node.wikiReferences ?? [],
     })),
     edges: [...edgeMap.values()],
   };
@@ -1152,10 +1181,6 @@ export function workbenchApiPlugin({
             const from = url.searchParams.get("from") || undefined; const to = url.searchParams.get("to") || undefined;
             return json(res, 200, { items: await dingtalk.list({ from, to }) });
           }
-          if (req.method === "GET" && url.pathname === "/api/dingtalk/todos") {
-            return json(res, 200, { items: await dingtalk.todos() });
-          }
-
           if (req.method === "GET" && url.pathname === "/api/tasks") {
             return json(res, 200, { items: tasks.list(url.searchParams.get("status") || "all") });
           }
@@ -1250,6 +1275,10 @@ export function workbenchApiPlugin({
 
           if (req.method === "GET" && url.pathname === "/api/outlook/archive") {
             return json(res, 200, await outlook.list("archive"));
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/outlook/all") {
+            return json(res, 200, await outlook.list("all"));
           }
 
           if (req.method === "POST" && url.pathname === "/api/outlook/disconnect") {

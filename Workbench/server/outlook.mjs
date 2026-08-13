@@ -16,13 +16,13 @@ import {
 import path from "node:path";
 
 const STORE_VERSION = 1;
-const MAX_STORE_BYTES = 2 * 1024 * 1024;
+const MAX_STORE_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGES_PER_SYNC = 500;
 const BODY_LIMIT = 12_000;
 const SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const OAUTH_SESSION_MS = 10 * 60 * 1000;
 const TOKEN_REFRESH_WINDOW_MS = 2 * 60 * 1000;
-const CLASSIFIER_VERSION = 2;
+const CLASSIFIER_VERSION = 5;
 
 export class OutlookServiceError extends Error {
   constructor(code, message, details = undefined) {
@@ -237,7 +237,7 @@ function publicStatus(state, config) {
     lastSyncAt: state.sync?.lastSuccessAt || null,
     lastError: state.sync?.lastError || null,
     todoCount: messages.filter((message) => message.status === "open").length,
-    archiveCount: messages.filter((message) => ["processed", "ignored"].includes(message.status)).length,
+    archiveCount: messages.filter((message) => ["processed", "ignored", "not_actionable"].includes(message.status)).length,
   };
 }
 
@@ -379,6 +379,7 @@ export function createOutlookService({
       subject: safeString(message.subject, 512) || "（无主题）",
       receivedAt: safeString(message.receivedDateTime, 80),
       webLink: safeString(message.webLink, 2_048),
+      bodyText: prepareMailText(message.body?.content, 8_000),
       classification: result.classification,
       classifierVersion: CLASSIFIER_VERSION,
       intent: result.intent,
@@ -420,7 +421,7 @@ export function createOutlookService({
           if (!newest || String(message.receivedDateTime) > newest) newest = message.receivedDateTime;
           const prior = existing.get(message.id);
           if (
-            (prior && prior.status !== "retry" && prior.classifierVersion === 2) ||
+            (prior && prior.status !== "retry" && prior.classifierVersion === CLASSIFIER_VERSION) ||
             (!prior && message.internetMessageId && knownInternetIds.has(message.internetMessageId))
           ) continue;
           try {
@@ -522,8 +523,13 @@ export function createOutlookService({
     },
     async list(kind = "todos") {
       const state = await readState();
-      const statuses = kind === "archive" ? new Set(["processed", "ignored"]) : new Set(["open"]);
-      return { items: state.messages.filter((message) => statuses.has(message.status)).map(publicMessage), ...publicStatus(state, config) };
+      const statuses = kind === "all"
+        ? null
+        : kind === "archive"
+          ? new Set(["processed", "ignored", "not_actionable"])
+          : new Set(["open"]);
+      const items = state.messages.filter((message) => !statuses || statuses.has(message.status)).map(publicMessage);
+      return { items, ...publicStatus(state, config) };
     },
     async setMessageStatus(id, status) {
       if (!["processed", "ignored", "open"].includes(status)) fail("OUTLOOK_INVALID_STATUS", "不支持的邮件处理状态。");

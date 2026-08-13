@@ -702,6 +702,8 @@ async function buildDocument(file, vaultRoot, errors) {
       label: sanitizeTextPaths(link.label, vaultRoot),
     })),
     backlinks: [],
+    sourceRefs: [],
+    wikiReferences: [],
     excerpt: sanitizeTextPaths(
       stripMarkdownForExcerpt(parsed.body).slice(0, 320) || "",
       vaultRoot,
@@ -787,6 +789,81 @@ function resolveWikiLinks(documents) {
   }
 
   return documentById;
+}
+
+function sourceValues(document) {
+  const value = document.frontmatter?.sources;
+  if (value == null || value === "") return [];
+  return Array.isArray(value) ? value.map(String) : [String(value)];
+}
+
+function normalizeSourceTarget(value) {
+  return String(value)
+    .trim()
+    .replace(/^\[\[|\]\]$/g, "")
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/^\.\//, "")
+    .replace(/\\/g, "/")
+    .split("#", 1)[0]
+    .trim();
+}
+
+function resolveSourceReferences(documents) {
+  const lookup = buildLinkLookup(documents);
+  const byId = new Map(documents.map((document) => [document.id, document]));
+
+  function resolveTarget(sourceDocument, target) {
+    const rawTarget = withoutMarkdownExtension(normalizeSourceTarget(target));
+    if (!rawTarget || /^[a-z][a-z\d+.-]*:/i.test(rawTarget)) return null;
+    const sourceDirectory = path.posix.dirname(sourceDocument.path);
+    const candidates = [
+      path.posix.normalize(path.posix.join(sourceDirectory, rawTarget)),
+      path.posix.normalize(rawTarget),
+    ];
+    if (!rawTarget.startsWith("10_raw/") && !rawTarget.startsWith("raw/")) {
+      candidates.push(path.posix.normalize(path.posix.join("10_raw", rawTarget)));
+    }
+    for (const candidate of candidates) {
+      const resolved = lookup.exact.get(candidate) || lookup.exact.get(`${candidate}.md`);
+      if (resolved?.layer === "raw") return resolved;
+    }
+    if (!rawTarget.includes("/")) {
+      const matches = (lookup.basenames.get(rawTarget) || []).filter((item) => item.layer === "raw");
+      if (matches.length === 1) return matches[0];
+    }
+    return null;
+  }
+
+  for (const wikiDocument of documents) {
+    if (wikiDocument.layer !== "wiki" || wikiDocument.kind !== "knowledge") continue;
+    const targets = [
+      ...sourceValues(wikiDocument),
+      ...wikiDocument.wikiLinks
+        .filter((link) => link.resolvedId && byId.get(link.resolvedId)?.layer === "raw")
+        .map((link) => link.target),
+    ];
+    const seen = new Set();
+    for (const target of targets) {
+      const resolved = resolveTarget(wikiDocument, target);
+      if (!resolved) {
+        wikiDocument.qualityFlags.push("unresolved_source");
+        continue;
+      }
+      if (seen.has(resolved.id)) continue;
+      seen.add(resolved.id);
+      const reference = {
+        id: resolved.id,
+        path: resolved.path,
+        title: resolved.title,
+      };
+      wikiDocument.sourceRefs.push(reference);
+      resolved.wikiReferences.push({
+        id: wikiDocument.id,
+        path: wikiDocument.path,
+        title: wikiDocument.title,
+      });
+    }
+  }
 }
 
 function countBy(items, getter) {
@@ -2710,6 +2787,8 @@ function publicDocument(document) {
     headings: document.headings,
     wikiLinks: document.wikiLinks,
     backlinks: document.backlinks,
+    sourceRefs: document.sourceRefs,
+    wikiReferences: document.wikiReferences,
     excerpt: document.excerpt,
     qualityFlags: document.qualityFlags,
   };
@@ -2757,6 +2836,7 @@ export async function buildVaultIndex(vaultRoot) {
 
   documents.sort((a, b) => a.path.localeCompare(b.path, "zh-CN"));
   const documentMap = resolveWikiLinks(documents);
+  resolveSourceReferences(documents);
   const wikiPages = documents.filter(
     (document) =>
       document.layer === "wiki" &&

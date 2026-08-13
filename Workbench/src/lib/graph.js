@@ -13,6 +13,7 @@ export const TYPE_META = {
   conflict: { color: "#4c1d95", label: "冲突", code: "CFL" },
   question: { color: "#c4b5fd", label: "问答", code: "QST" },
   other: { color: "#d4d4d8", label: "其他", code: "ETC" },
+  material: { color: "#0f766e", label: "素材证据", code: "RAW" },
 };
 
 export function typeMetaOf(type) {

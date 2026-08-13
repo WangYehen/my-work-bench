@@ -69,6 +69,9 @@ export function affectedScopesForPaths(paths = []) {
     } else if (top === "10_raw") {
       scopes.add("materials");
       scopes.add("overview");
+      if (!value.includes("/.workbench-material-reading-state.json")) {
+        scopes.add("graph");
+      }
       if (value.includes("/.workbench-material-reading-state.json")) {
         scopes.add("reading_queue");
       }

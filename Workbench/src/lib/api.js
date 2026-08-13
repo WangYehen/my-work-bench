@@ -86,6 +86,10 @@ export function loadOutlookTodos(kind = "todos") {
   return withFallback(() => request(endpoint), { ...unavailableOutlook, items: [] });
 }
 
+export function loadOutlookAll() {
+  return withFallback(() => request("/api/outlook/all"), { ...unavailableOutlook, items: [] });
+}
+
 export function acceptOutlookConsent() {
   return request("/api/outlook/consent", { method: "POST", body: JSON.stringify({ accepted: true }) });
 }
@@ -130,10 +134,6 @@ export function syncDingTalk(range = {}) {
 export function loadDingTalkEvents(range = {}) {
   const search = new URLSearchParams(Object.entries(range).filter(([, value]) => value));
   return withFallback(() => request(`/api/dingtalk/events?${search}`), { items: [] });
-}
-
-export function loadDingTalkTodos() {
-  return withFallback(() => request("/api/dingtalk/todos"), { items: [] });
 }
 
 const unavailableIntegrations = {
@@ -499,7 +499,14 @@ export function createWikiIngestEventSource(jobId) {
 export function loadGraph() {
   return withFallback(() => request("/api/graph"), {
     generatedAt: null,
-    stats: { nodeCount: 0, edgeCount: 0, isolatedCount: 0 },
+    stats: {
+      nodeCount: 0,
+      edgeCount: 0,
+      isolatedCount: 0,
+      wikiNodeCount: 0,
+      materialNodeCount: 0,
+      sourceEdgeCount: 0,
+    },
     typeCounts: {},
     nodes: [],
     edges: [],
