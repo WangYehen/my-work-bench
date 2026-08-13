@@ -30,5 +30,7 @@ secrets.*.json
 
 Workbench/config/attention.local.json
 Workbench/.local/
+Workbench/artifacts/
+Workbench/design-qa.md
 个人知识库/10_raw/my-thoughts/reading-notes/*
 !个人知识库/10_raw/my-thoughts/reading-notes/.gitkeep
