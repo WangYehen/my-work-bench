@@ -9,12 +9,15 @@ import { GraphPage } from "./pages/GraphPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
 import { BooksPage } from "./pages/BooksPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { TodayWorkPage } from "./pages/TodayWorkPage";
 import { SystemPage } from "./pages/SystemPage";
 import { TopicsPage } from "./pages/TopicsPage";
 import { WorkManagementPage } from "./pages/WorkManagementPage";
 import { MeetingsPage } from "./pages/MeetingsPage";
 import { DailyReportPage } from "./pages/DailyReportPage";
 import { TeamReportsAdminPage } from "./pages/TeamReportsAdminPage";
+import { TeamRiskPage } from "./pages/TeamRiskPage";
+import { TeamWeeklyReportPage } from "./pages/TeamWeeklyReportPage";
 import { OutlookPage } from "./pages/OutlookPage";
 import { SocialInsightsPage, SocialTrendDetailPage } from "./pages/SocialInsightsPage";
 import { useVaultSync } from "./hooks/useVaultSync";
@@ -89,7 +92,8 @@ export function App() {
     <>
       <AppShell onOpenSearch={appContext.openSearch} sync={vaultSync} teamUser={teamUser}>
         <Routes key={routeRevision}>
-          <Route path="/" element={<OverviewPage onOpenDocument={openDocument} />} />
+          <Route path="/" element={<TodayWorkPage />} />
+          <Route path="/overview" element={<OverviewPage onOpenDocument={openDocument} />} />
           <Route path="/graph" element={<GraphPage onOpenDocument={openDocument} />} />
           <Route
             path="/wiki"
@@ -116,7 +120,9 @@ export function App() {
           {localWorkbench ? <Route path="/outlook" element={<OutlookPage />} /> : null}
           <Route path="/weekly-report" element={<WorkManagementPage module="reports" />} />
           <Route path="/daily-report" element={<DailyReportPage />} />
-          <Route path="/team-reports" element={teamUser?.role === "member" ? <Navigate replace to="/daily-report" /> : <TeamReportsAdminPage />} />
+          <Route path="/team-reports" element={teamUser && !teamUser.canViewTeamReports && teamUser.role === "member" ? <Navigate replace to="/daily-report" /> : <TeamReportsAdminPage />} />
+          <Route path="/team-risks" element={teamUser && !teamUser.canViewTeamReports && teamUser.role === "member" ? <Navigate replace to="/daily-report" /> : <TeamRiskPage />} />
+          <Route path="/team-weekly-report" element={teamUser && !teamUser.canViewTeamReports && teamUser.role === "member" ? <Navigate replace to="/weekly-report" /> : <TeamWeeklyReportPage />} />
           {localWorkbench ? (
             <Route
               path="/social-insights"

@@ -114,3 +114,13 @@ export function loadAdminDailyReports(filters = {}) {
   if (bridge()) return bridge().adminReports(filters);
   return remote(`/api/team/reports?${query}`);
 }
+
+export function loadTeamDashboard(filters = {}) {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined && value !== ""));
+  return remote(`/api/team/dashboard?${query}`);
+}
+
+export function loadTeamWeeklySummary(filters = {}) {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value));
+  return remote(`/api/team/weekly-summary?${query}`);
+}

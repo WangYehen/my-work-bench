@@ -87,6 +87,42 @@ function publicUser(row) {
   };
 }
 
+export function reportDeadline(reportDate, hour = Number(process.env.DAILY_REPORT_DEADLINE_HOUR || 18)) {
+  return new Date(`${reportDate}T${String(hour).padStart(2, "0")}:00:00+08:00`);
+}
+
+export function isWorkingDay(reportDate) {
+  const day = new Date(`${reportDate}T12:00:00+08:00`).getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+function splitLines(value) {
+  return String(value || "").split(/\r?\n|[；;]/).map((item) => item.replace(/^[-*•\d.、\s]+/, "").trim()).filter((item) => item && item !== "无");
+}
+
+export function summarizeTeamReports(reports = []) {
+  const blockerGroups = new Map();
+  const decisions = [];
+  const nextActions = [];
+  for (const report of reports) {
+    for (const blocker of splitLines(report.blockers)) {
+      const key = blocker.replace(/[，。！？\s]/g, "").slice(0, 24);
+      const group = blockerGroups.get(key) || { text: blocker, affectedMembers: [], departments: [] };
+      if (!group.affectedMembers.includes(report.displayName || report.username)) group.affectedMembers.push(report.displayName || report.username);
+      if (report.departmentName && !group.departments.includes(report.departmentName)) group.departments.push(report.departmentName);
+      blockerGroups.set(key, group);
+      if (/决策|确认|批准|审批|拍板|资源|支持/.test(blocker)) decisions.push({ text: blocker, owner: report.displayName || report.username, departmentName: report.departmentName, dueAt: report.reportDate });
+    }
+    for (const action of splitLines(report.nextActions)) nextActions.push({ text: action, owner: report.displayName || report.username, departmentName: report.departmentName });
+  }
+  return {
+    blockers: [...blockerGroups.values()].sort((a, b) => b.affectedMembers.length - a.affectedMembers.length).slice(0, 8),
+    decisions: decisions.slice(0, 8),
+    nextActions: nextActions.slice(0, 10),
+    source: "rules",
+  };
+}
+
 async function upsertDingTalkUser(identity) {
   const timestamp = now();
   const role = adminDingTalkIds.has(identity.dingtalkUserId) ? "admin" : "member";
@@ -171,6 +207,60 @@ async function listReportsForUser(user, from, to) {
     WHERE r.user_id IN (${placeholders}) AND r.report_date BETWEEN ? AND ?
     ORDER BY r.report_date DESC, u.display_name ASC`, [...ids, from, to]);
   return rows;
+}
+
+async function decoratedUser(user) {
+  const ids = await visibleUserIds(user);
+  let recipient = null;
+  if (user.manager_user_id) {
+    const [rows] = await pool.execute("SELECT display_name AS displayName, username FROM users WHERE dingtalk_user_id = ? AND status = 'active' LIMIT 1", [user.manager_user_id]);
+    recipient = rows[0] || null;
+  }
+  if (!recipient) {
+    const [rows] = await pool.execute("SELECT display_name AS displayName, username FROM users WHERE role = 'admin' AND status = 'active' ORDER BY id LIMIT 1");
+    recipient = rows[0] || null;
+  }
+  return { ...publicUser(user), canViewTeamReports: user.role === "admin" || ids.some((id) => Number(id) !== Number(user.id)), reportRecipient: recipient };
+}
+
+async function teamDashboard(user, query) {
+  const reportDate = query.get("date") || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw error("INVALID_REPORT_DATE", "日报日期无效。");
+  const ids = await visibleUserIds(user);
+  if (!ids.length) return { reportDate, metrics: { submitted: 0, expected: 0, missing: 0, late: 0 }, members: [], reports: [], summary: summarizeTeamReports([]) };
+  const placeholders = ids.map(() => "?").join(",");
+  const department = String(query.get("department") || "").trim();
+  const member = String(query.get("member") || "").trim();
+  const [members] = await pool.execute(`SELECT id, username, display_name AS displayName, department_name AS departmentName FROM users WHERE id IN (${placeholders}) AND status='active' ORDER BY display_name`, ids);
+  const filteredMembers = members.filter((item) => (!department || item.departmentName === department) && (!member || String(item.id) === member));
+  const memberIds = filteredMembers.map((item) => item.id);
+  const reports = memberIds.length ? await listReportsForUser(user, reportDate, reportDate) : [];
+  const allowed = new Set(memberIds.map(Number));
+  const filteredReports = reports.filter((item) => allowed.has(Number(item.userId)));
+  const byUser = new Map(filteredReports.map((item) => [Number(item.userId), item]));
+  const cutoff = reportDeadline(reportDate);
+  const current = now();
+  const workingDay = isWorkingDay(reportDate);
+  const statusMembers = filteredMembers.map((item) => {
+    const report = byUser.get(Number(item.id));
+    const submittedAt = report?.submittedAt ? new Date(report.submittedAt) : null;
+    const status = report ? (submittedAt > cutoff ? "late" : "submitted") : (workingDay && current > cutoff ? "missing" : "pending");
+    return { ...item, status, submittedAt: report?.submittedAt || null };
+  });
+  return {
+    reportDate,
+    deadlineAt: cutoff.toISOString(),
+    metrics: {
+      submitted: statusMembers.filter((item) => item.status === "submitted" || item.status === "late").length,
+      expected: workingDay ? statusMembers.length : 0,
+      missing: statusMembers.filter((item) => item.status === "missing").length,
+      late: statusMembers.filter((item) => item.status === "late").length,
+    },
+    members: statusMembers,
+    reports: filteredReports,
+    summary: summarizeTeamReports(filteredReports),
+    generatedAt: current.toISOString(),
+  };
 }
 
 function redirect(res, location) {
@@ -259,7 +349,18 @@ async function route(req, res) {
     return json(res, 200, { token, user: publicUser(rows[0]) });
   }
   const user = await auth(req);
-  if (req.method === "GET" && url.pathname === "/api/team/me") return json(res, 200, { user: publicUser(user) });
+  if (req.method === "GET" && url.pathname === "/api/team/me") return json(res, 200, { user: await decoratedUser(user) });
+  if (req.method === "GET" && url.pathname === "/api/team/dashboard") return json(res, 200, await teamDashboard(user, url.searchParams));
+  if (req.method === "GET" && url.pathname === "/api/team/dashboard/summary") {
+    const dashboard = await teamDashboard(user, url.searchParams);
+    return json(res, 200, dashboard.summary);
+  }
+  if (req.method === "GET" && url.pathname === "/api/team/weekly-summary") {
+    const from = url.searchParams.get("from") || "1000-01-01";
+    const to = url.searchParams.get("to") || "9999-12-31";
+    const reports = await listReportsForUser(user, from, to);
+    return json(res, 200, { from, to, reportCount: reports.length, ...summarizeTeamReports(reports) });
+  }
   if (req.method === "GET" && url.pathname === "/api/team/daily-reports/me") {
     const from = url.searchParams.get("from") || "1000-01-01";
     const to = url.searchParams.get("to") || "9999-12-31";
@@ -279,7 +380,8 @@ async function route(req, res) {
     const timestamp = now();
     const [result] = await pool.execute(`INSERT INTO daily_reports (user_id, report_date, summary, completed_items, blockers, next_actions, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE summary=VALUES(summary), completed_items=VALUES(completed_items), blockers=VALUES(blockers), next_actions=VALUES(next_actions), submitted_at=VALUES(submitted_at), updated_at=VALUES(updated_at)`, [user.id, report.reportDate, report.summary, report.completedItems, report.blockers, report.nextActions, timestamp, timestamp]);
     await audit(user.id, "upsert", "daily_report", String(result.insertId || ""));
-    return json(res, 200, { id: result.insertId || null, reportDate: report.reportDate, submittedAt: timestamp.toISOString() });
+    const currentUser = await decoratedUser(user);
+    return json(res, 200, { id: result.insertId || null, reportDate: report.reportDate, submittedAt: timestamp.toISOString(), recipient: currentUser.reportRecipient, syncStatus: "synced" });
   }
   if (req.method === "GET" && url.pathname === "/api/team/reports") {
     const from = url.searchParams.get("from") || "1000-01-01";

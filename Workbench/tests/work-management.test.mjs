@@ -39,8 +39,9 @@ test("work navigation exposes new modules and removes content and douyin entries
 
   for (const route of ["/todos", "/weekly-focus", "/meetings", "/outlook", "/weekly-report"]) {
     assert.match(app, new RegExp(`path=\\"${route}\\"`));
-    assert.ok(shell.includes(`to: "${route}"`));
   }
+  for (const route of ["/", "/weekly-focus", "/daily-report", "/weekly-report", "/team-reports", "/team-risks", "/team-weekly-report"]) assert.ok(shell.includes(`to: "${route}"`));
+  assert.match(app, /TodayWorkPage/);
 
   assert.equal(app.includes('path="/content"'), false);
   assert.equal(app.includes('path="/douyin"'), false);
@@ -64,5 +65,39 @@ test("team report authentication is centralized in system settings", async () =>
     assert.equal(page.includes("loginDailyReport"), false);
     assert.equal(page.includes("logoutDailyReport"), false);
   }
-  assert.match(admin, /钉钉组织权限范围/);
+  assert.match(admin, /直属关系加载真实团队日报/);
+});
+
+test("Outlook inbox reports real sync state and uses the shared page header", async () => {
+  const [outlook, styles] = await Promise.all([
+    readFile(new URL("../src/pages/OutlookPage.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(outlook, /<PageHeader/);
+  assert.match(outlook, /title="行动收件箱"/);
+  assert.match(outlook, /syncing \? "正在识别邮件…" : `已完成 /);
+  assert.match(outlook, /<span>发件人与主题<\/span><span>要做什么<\/span>/);
+  assert.match(outlook, /action-mail-primary/);
+  assert.match(outlook, /AI 判断详情/);
+  assert.match(outlook, /断开 Outlook 后将停止同步，但会保留本地邮件归档/);
+  assert.equal(outlook.includes("识别中：{status.todoCount + status.uncertainCount}"), false);
+  assert.match(styles, /\.action-inbox-tabs button \{[^}]*font-size: 14px/);
+  assert.match(styles, /\.action-mail-row small \{[^}]*font-size: 11px/);
+});
+
+test("registered route pages use the shared header contract", async () => {
+  const [header, app, styles] = await Promise.all([
+    readFile(new URL("../src/components/PageHeader.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(header, /formatPageEyebrow/);
+  assert.match(header, /replace\(\/\^\\s\*\\\/\\\/\\s\*\//);
+  assert.match(header, /page-header__actions/);
+  assert.match(header, /page-header__meta/);
+  assert.equal(header.includes("aside"), false);
+  assert.match(app, /path="\/books\/:bookId"/);
+  assert.match(styles, /\.page-header__eyebrow/);
+  assert.match(styles, /\.floating-search \{ display: none !important; \}/);
 });
