@@ -1,9 +1,5 @@
-.app-main:has(.page--douyin) {
-  max-width: none;
-}
-
 .page--douyin {
-  width: min(100%, 1560px);
+  width: min(100%, 1280px);
 }
 
 .dy-dashboard {
