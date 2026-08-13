@@ -48,3 +48,14 @@ test("tasks reject invalid title, priority, due date, and status", async () => {
   service.close();
   await rm(directory, { recursive: true, force: true });
 });
+
+test("tasks preserve source provenance and create idempotently by source", async () => {
+  const { directory, service } = await fixture();
+  const first = service.create({ title: "回复邮件", sourceType: "outlook", sourceId: "mail-1", sourceUrl: "https://example.test/mail/1", priorityReason: "今天截止" });
+  const second = service.create({ title: "不应重复", sourceType: "outlook", sourceId: "mail-1" });
+  assert.equal(second.id, first.id);
+  assert.equal(service.list().length, 1);
+  assert.equal(service.get(first.id).sourceUrl, "https://example.test/mail/1");
+  service.close();
+  await rm(directory, { recursive: true, force: true });
+});

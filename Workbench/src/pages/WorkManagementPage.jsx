@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   IconCalendarEvent, IconCheck, IconChecklist, IconCircle, IconEdit,
-  IconChevronDown, IconFileText, IconNotes, IconPlus, IconRefresh, IconSparkles, IconTrash,
+  IconChevronDown, IconFileText, IconNotes, IconPlus, IconRefresh, IconSparkles, IconTrash, IconX,
 } from "@tabler/icons-react";
 import { PageHeader } from "../components/PageHeader";
 import { DateTimePicker } from "../components/WorkbenchCalendar";
@@ -129,6 +129,26 @@ function FocusForm({ initial = focusEmptyForm, onSubmit, onCancel, busy }) {
   </form>;
 }
 
+function FocusDialog({ initial, onSubmit, onClose, busy }) {
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onClose]);
+
+  return <div className="focus-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section aria-labelledby="focus-dialog-title" aria-modal="true" className="focus-modal" role="dialog">
+      <header className="focus-modal__header">
+        <div><span className="eyebrow">WEEK / FOCUS</span><h2 id="focus-dialog-title">{initial?.id ? "编辑关注" : "新增关注"}</h2><p>记录本周最值得持续投入注意力的目标与下一步。</p></div>
+        <button aria-label="关闭弹窗" className="focus-modal__close" disabled={busy} onClick={onClose} type="button"><IconX size={19} /></button>
+      </header>
+      <FocusForm initial={initial || focusEmptyForm} busy={busy} onSubmit={onSubmit} onCancel={onClose} />
+    </section>
+  </div>;
+}
+
 function FocusTaskPicker({ tasks, onAttach, onCreate, busy }) {
   const [taskId, setTaskId] = useState("");
   const [open, setOpen] = useState(false);
@@ -192,7 +212,7 @@ function FocusModule() {
   };
   return <>
     <div className="focus-summary"><div><span className="eyebrow">CURRENT WEEK</span><strong>{formatFocusDate(weekStart)} – {formatFocusDate(new Date(new Date(`${weekStart}T00:00:00`).getTime() + 6 * 86400000).toISOString().slice(0, 10))}</strong></div><div className="focus-summary__stats"><span><b>{completedGoals}/{items.length}</b>目标完成</span><span><b>{actionProgress}%</b>行动完成</span></div><button className="work-button work-button--primary" onClick={() => { setAdding(true); setEditing(null); }} type="button"><IconPlus size={15} />新增关注</button></div>
-    {(adding || editing) && <FocusForm initial={editing || focusEmptyForm} busy={pending} onSubmit={save} onCancel={() => { setAdding(false); setEditing(null); }} />}
+    {(adding || editing) && <FocusDialog initial={editing || focusEmptyForm} busy={pending} onSubmit={save} onClose={() => { setAdding(false); setEditing(null); }} />}
     {error && <div className="work-error" role="alert">{error}<button onClick={refresh} type="button">重试</button></div>}
     {loading ? <div className="report-empty"><IconRefresh size={24} /><strong>正在加载本周关注</strong></div> : items.length ? <section className="focus-grid" aria-label="本周关注目标">{items.map((item) => <FocusCard key={item.id} item={item} availableTasks={availableTasks} pending={pending} onEdit={(value) => { setEditing(value); setAdding(false); }} onDelete={remove} onUpdate={(value, patch, isTask = false) => run(() => isTask ? updateTask(value.id, patch) : updateWeeklyFocus(value.id, patch))} onAttach={(focusId, taskId) => run(() => attachTaskToWeeklyFocus(focusId, taskId))} onDetach={(focusId, taskId) => run(() => detachTaskFromWeeklyFocus(focusId, taskId))} onCreateTask={createAction} />)}</section> : <div className="report-empty"><IconNotes size={24} /><strong>本周还没有关注目标</strong><span>把本周最值得持续投入注意力的 3–5 件事写下来。</span><button className="work-button work-button--primary" onClick={() => setAdding(true)} type="button"><IconPlus size={15} />创建第一条关注</button></div>}
   </>;
@@ -271,7 +291,7 @@ function ReportsModule() {
 }
 
 export function WorkManagementPage({ module }) {
-  const config = moduleCopy[module]; const Icon = config.icon;
+  const config = moduleCopy[module];
   const content = module === "todos" ? <TodoModule /> : module === "focus" ? <FocusModule /> : module === "meetings" ? <MeetingsModule /> : <ReportsModule />;
-  return <div className="page page--work-management"><PageHeader eyebrow={config.eyebrow} title={config.title} description={config.description} aside={<span className="work-page-icon"><Icon size={20} /></span>} />{content}</div>;
+  return <div className="page page--work-management"><PageHeader eyebrow={config.eyebrow} title={config.title} description={config.description} />{content}</div>;
 }

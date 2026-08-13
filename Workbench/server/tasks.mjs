@@ -48,6 +48,13 @@ function validateDetail(value) {
   return detail || null;
 }
 
+function validateOptionalText(value, max, code, message) {
+  if (value === null || value === undefined || value === "") return null;
+  const text = String(value).trim();
+  if (text.length > max) throw taskError(code, message);
+  return text || null;
+}
+
 export function createTaskService({ dbPath, seedTasks = [] }) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
@@ -67,12 +74,23 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks(status, due_at, created_at);
   `);
+  const taskColumns = new Set(db.prepare("PRAGMA table_info(tasks)").all().map((column) => column.name));
+  const migrations = [
+    ["source_type", "ALTER TABLE tasks ADD COLUMN source_type TEXT"],
+    ["source_id", "ALTER TABLE tasks ADD COLUMN source_id TEXT"],
+    ["source_url", "ALTER TABLE tasks ADD COLUMN source_url TEXT"],
+    ["priority_reason", "ALTER TABLE tasks ADD COLUMN priority_reason TEXT"],
+  ];
+  for (const [column, statement] of migrations) {
+    if (!taskColumns.has(column)) db.exec(statement);
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_type, source_id) WHERE source_type IS NOT NULL AND source_id IS NOT NULL;");
 
   const count = db.prepare("SELECT COUNT(*) AS count FROM tasks").get().count;
   if (count === 0 && seedTasks.length) {
     const insert = db.prepare(`INSERT INTO tasks
-      (id, title, detail, priority, due_at, status, created_at, updated_at, completed_at)
-      VALUES (@id, @title, @detail, @priority, @dueAt, @status, @createdAt, @updatedAt, @completedAt)`);
+      (id, title, detail, priority, due_at, status, created_at, updated_at, completed_at, source_type, source_id, source_url, priority_reason)
+      VALUES (@id, @title, @detail, @priority, @dueAt, @status, @createdAt, @updatedAt, @completedAt, @sourceType, @sourceId, @sourceUrl, @priorityReason)`);
     const now = new Date().toISOString();
     const seed = db.transaction(() => {
       for (const source of seedTasks) {
@@ -86,6 +104,10 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
           createdAt: now,
           updatedAt: now,
           completedAt: source.completed ? now : null,
+          sourceType: validateOptionalText(source.sourceType, 80, "INVALID_TASK_SOURCE", "任务来源类型无效。"),
+          sourceId: validateOptionalText(source.sourceId, 512, "INVALID_TASK_SOURCE", "任务来源标识无效。"),
+          sourceUrl: validateOptionalText(source.sourceUrl, 2_048, "INVALID_TASK_SOURCE", "任务来源链接无效。"),
+          priorityReason: validateOptionalText(source.priorityReason, 500, "INVALID_TASK_PRIORITY_REASON", "优先级原因过长。"),
         });
       }
     });
@@ -93,7 +115,8 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
   }
 
   const select = db.prepare(`SELECT id, title, detail, priority, due_at AS dueAt,
-    status, created_at AS createdAt, updated_at AS updatedAt, completed_at AS completedAt
+    status, created_at AS createdAt, updated_at AS updatedAt, completed_at AS completedAt,
+    source_type AS sourceType, source_id AS sourceId, source_url AS sourceUrl, priority_reason AS priorityReason
     FROM tasks`);
 
   function list(status = "all") {
@@ -111,6 +134,12 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
   }
 
   function create(input = {}) {
+    const sourceType = validateOptionalText(input.sourceType, 80, "INVALID_TASK_SOURCE", "任务来源类型无效。");
+    const sourceId = validateOptionalText(input.sourceId, 512, "INVALID_TASK_SOURCE", "任务来源标识无效。");
+    if (sourceType && sourceId) {
+      const existing = asTask(db.prepare(`${select.source} WHERE source_type = ? AND source_id = ?`).get(sourceType, sourceId));
+      if (existing) return existing;
+    }
     const now = new Date().toISOString();
     const task = {
       id: randomUUID(),
@@ -122,10 +151,14 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
       createdAt: now,
       updatedAt: now,
       completedAt: null,
+      sourceType,
+      sourceId,
+      sourceUrl: validateOptionalText(input.sourceUrl, 2_048, "INVALID_TASK_SOURCE", "任务来源链接无效。"),
+      priorityReason: validateOptionalText(input.priorityReason, 500, "INVALID_TASK_PRIORITY_REASON", "优先级原因过长。"),
     };
     db.prepare(`INSERT INTO tasks
-      (id, title, detail, priority, due_at, status, created_at, updated_at, completed_at)
-      VALUES (@id, @title, @detail, @priority, @dueAt, @status, @createdAt, @updatedAt, @completedAt)`).run(task);
+      (id, title, detail, priority, due_at, status, created_at, updated_at, completed_at, source_type, source_id, source_url, priority_reason)
+      VALUES (@id, @title, @detail, @priority, @dueAt, @status, @createdAt, @updatedAt, @completedAt, @sourceType, @sourceId, @sourceUrl, @priorityReason)`).run(task);
     return asTask(task);
   }
 
@@ -144,9 +177,14 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
       status: nextStatus,
       updatedAt: now,
       completedAt: nextStatus === "completed" ? (existing.completedAt || now) : null,
+      sourceType: existing.sourceType,
+      sourceId: existing.sourceId,
+      sourceUrl: input.sourceUrl === undefined ? existing.sourceUrl : validateOptionalText(input.sourceUrl, 2_048, "INVALID_TASK_SOURCE", "任务来源链接无效。"),
+      priorityReason: input.priorityReason === undefined ? existing.priorityReason : validateOptionalText(input.priorityReason, 500, "INVALID_TASK_PRIORITY_REASON", "优先级原因过长。"),
     };
     db.prepare(`UPDATE tasks SET title=@title, detail=@detail, priority=@priority, due_at=@dueAt,
-      status=@status, updated_at=@updatedAt, completed_at=@completedAt WHERE id=@id`).run(next);
+      status=@status, updated_at=@updatedAt, completed_at=@completedAt,
+      source_url=@sourceUrl, priority_reason=@priorityReason WHERE id=@id`).run(next);
     return get(id);
   }
 
@@ -162,4 +200,3 @@ export function createTaskService({ dbPath, seedTasks = [] }) {
 
   return { list, get, create, update, remove, clearCompleted, close: () => db.close() };
 }
-
