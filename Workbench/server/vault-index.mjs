@@ -42,6 +42,9 @@ const FORMAL_WIKI_SECTIONS = new Set([
   "conflicts",
   "diagnoses",
   "frameworks",
+  "architecture",
+  "domain",
+  "references",
   "questions",
   "sources",
   "topics",
@@ -490,6 +493,9 @@ function classifyDocument(relativePath) {
   if (top === "10_raw") {
     return { layer: "raw", section, kind: "material" };
   }
+  if (top === "raw") {
+    return { layer: "raw", section, kind: "material" };
+  }
   if (top === "40_topics") {
     return { layer: "topics", section, kind: "topic" };
   }
@@ -791,6 +797,14 @@ function countBy(items, getter) {
     counts[normalized] = (counts[normalized] || 0) + 1;
   }
   return counts;
+}
+
+function countWikiStatus(items) {
+  const accepted = new Set(["active", "needs-review", "deprecated"]);
+  return countBy(items, (item) => {
+    const status = item.status == null ? null : String(item.status).trim();
+    return accepted.has(status) ? status : "unlabeled";
+  });
 }
 
 function deriveTopic(document) {
@@ -2868,7 +2882,7 @@ export async function buildVaultIndex(vaultRoot) {
     wiki: {
       pages: wikiPages.map((document) => publicDocumentMap.get(document.id)),
       countsByType: countBy(wikiPages, (document) => document.type),
-      countsByStatus: countBy(wikiPages, (document) => document.status),
+      countsByStatus: countWikiStatus(wikiPages),
     },
     topics: {
       items: topics,

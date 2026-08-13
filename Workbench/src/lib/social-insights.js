@@ -47,6 +47,7 @@ export function buildSocialResearchHandoff({
         : "- 我最想回答的问题：未单独指定，请按该模式的默认问题推进。",
       "",
       "- 产出边界：只生成该模式的脱敏 Raw 报告，不写 Wiki、选题或内容生产层。",
+      "- Vault 输出位置：先读取项目 `Workbench/.env` 中的 `PERSONAL_DASHBOARD_VAULT_ROOT`，将最终报告直接写入该路径下的 `10_raw/social-insights/`；不得写入仓库内的合成 Demo Vault。若变量缺失、目录不存在或不可写，请先停止并说明，不得迁移或改写到其他 Vault。",
       "",
       "请按 Skill 当前的来源策略、评论分析规则、质量门禁、报告契约和校验流程执行。完成后说明实际覆盖、排除项、证据边界和报告路径。",
     ].join("\n");
@@ -62,6 +63,7 @@ export function buildSocialResearchHandoff({
     "- 研究问题：按该模式的默认问题推进。",
     "",
     "- 产出边界：只生成该模式的脱敏 Raw 报告，不写 Wiki、选题或内容生产层。",
+    "- Vault 输出位置：先读取项目 `Workbench/.env` 中的 `PERSONAL_DASHBOARD_VAULT_ROOT`，将最终报告直接写入该路径下的 `10_raw/social-insights/`；不得写入仓库内的合成 Demo Vault。若变量缺失、目录不存在或不可写，请先停止并说明，不得迁移或改写到其他 Vault。",
     "",
     "请按 Skill 当前的来源策略、评论分析规则、质量门禁、报告契约和校验流程执行。完成后说明实际覆盖、排除项、证据边界和报告路径。",
   ].join("\n");

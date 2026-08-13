@@ -19,6 +19,8 @@ export const fallbackOverview = {
     active: null,
     needsReview: null,
     deprecated: null,
+    unlabeled: null,
+    total: null,
   },
   recent: [],
   activity: [],

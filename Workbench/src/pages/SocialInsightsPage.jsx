@@ -475,7 +475,7 @@ function ArchivePage({ onOpenDocument, syncRevision }) {
           <div className="social-empty social-empty--trend">
             <IconSocial aria-hidden="true" />
             <strong>还没有风向快照</strong>
-            <span>选择时间范围和研究深度，复制任务到 Codex。研究完成后会自动显示。</span>
+            <span>当前 Vault 尚无社媒洞察报告。选择时间范围和研究深度，复制任务到 Codex；研究完成后，合规的 Raw 报告会自动显示。</span>
             <button onClick={() => setTriggerMode("trend-scan")} type="button"><IconRefresh aria-hidden="true" />开始第一次扫描</button>
           </div>
         ) : <TrendArchiveList reports={trendItems} />
@@ -492,7 +492,7 @@ function ArchivePage({ onOpenDocument, syncRevision }) {
         <div className="social-empty">
           <IconDatabase aria-hidden="true" />
           <strong>还没有主题研究</strong>
-          <span>输入一个主题，复制任务到 Codex。研究完成后会自动显示。</span>
+          <span>当前 Vault 尚无社媒洞察报告。输入一个主题，复制任务到 Codex；研究完成后，合规的 Raw 报告会自动显示。</span>
           <button onClick={() => setTriggerMode("topic-deep-dive")} type="button"><IconFocus2 aria-hidden="true" />深挖一个主题</button>
         </div>
       ) : filtered.length === 0 ? (

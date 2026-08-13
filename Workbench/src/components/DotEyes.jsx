@@ -60,7 +60,7 @@ export function DotEyes({ awake = true, size = 148 }) {
   }, [awake, reducedMotion]);
 
   useEffect(() => {
-    if (!awake || reducedMotion) return undefined;
+    if (!awake) return undefined;
 
     let frame = 0;
     let cachedRect = null;
@@ -92,6 +92,9 @@ export function DotEyes({ awake = true, size = 148 }) {
       node.style.setProperty("--look-x", `${current.x.toFixed(2)}px`);
       node.style.setProperty("--look-y", `${current.y.toFixed(2)}px`);
       node.style.setProperty("--tilt", `${(current.x * 0.42).toFixed(2)}deg`);
+      // Iris rotation makes the reflected glint track the gaze, so the pair reads
+      // as eyes turning rather than a decorative group merely sliding sideways.
+      node.style.setProperty("--iris-spin", `${(current.x * 1.1 - current.y * 0.7).toFixed(2)}deg`);
 
       if (current.x === target.x && current.y === target.y) {
         frame = 0;
@@ -150,7 +153,7 @@ export function DotEyes({ awake = true, size = 148 }) {
       resizeObserver?.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [awake, reducedMotion]);
+  }, [awake]);
 
   useEffect(() => {
     if (!reducedMotion) return;
@@ -169,7 +172,7 @@ export function DotEyes({ awake = true, size = 148 }) {
   );
 
   const respond = (event) => {
-    if (!awake || reducedMotion) return;
+    if (!awake) return;
     const node = wrapRef.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();

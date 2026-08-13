@@ -64,6 +64,145 @@ export function loadOverview() {
   return withFallback(() => request("/api/overview"), fallbackOverview);
 }
 
+const unavailableOutlook = {
+  localOnly: true,
+  configured: false,
+  missingConfiguration: [],
+  modelProvider: "DeepSeek API",
+  consented: false,
+  connected: false,
+  lastSyncAt: null,
+  lastError: null,
+  todoCount: 0,
+  archiveCount: 0,
+};
+
+export function loadOutlookStatus() {
+  return withFallback(() => request("/api/outlook/status"), unavailableOutlook);
+}
+
+export function loadOutlookTodos(kind = "todos") {
+  const endpoint = kind === "archive" ? "/api/outlook/archive" : "/api/outlook/todos";
+  return withFallback(() => request(endpoint), { ...unavailableOutlook, items: [] });
+}
+
+export function acceptOutlookConsent() {
+  return request("/api/outlook/consent", { method: "POST", body: JSON.stringify({ accepted: true }) });
+}
+
+export function startOutlookOAuth() {
+  return request("/api/outlook/oauth/start", { method: "POST", body: JSON.stringify({}) });
+}
+
+export function syncOutlook() {
+  // Sync may classify many messages through the model API, so it needs a
+  // longer timeout than short interactive API requests.
+  return request("/api/outlook/sync", {
+    method: "POST",
+    body: JSON.stringify({}),
+    timeout: 120_000,
+  });
+}
+
+export function setOutlookMessageStatus(id, status) {
+  return request(`/api/outlook/todos/${encodeURIComponent(id)}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function disconnectOutlook() {
+  return request("/api/outlook/disconnect", { method: "POST", body: JSON.stringify({}) });
+}
+
+export function loadDingTalkStatus() {
+  return withFallback(() => request("/api/dingtalk/status"), { configured: false, connected: false, missingConfiguration: [], lastSyncAt: null, lastError: null, eventCount: 0 });
+}
+
+export function startDingTalkOAuth() {
+  return request("/api/dingtalk/oauth/start", { method: "POST", body: JSON.stringify({}) });
+}
+
+export function syncDingTalk(range = {}) {
+  return request("/api/dingtalk/sync", { method: "POST", body: JSON.stringify(range) });
+}
+
+export function loadDingTalkEvents(range = {}) {
+  const search = new URLSearchParams(Object.entries(range).filter(([, value]) => value));
+  return withFallback(() => request(`/api/dingtalk/events?${search}`), { items: [] });
+}
+
+export function loadDingTalkTodos() {
+  return withFallback(() => request("/api/dingtalk/todos"), { items: [] });
+}
+
+const unavailableIntegrations = {
+  generatedAt: null,
+  services: {},
+};
+
+export function loadIntegrationsStatus() {
+  return withFallback(() => request("/api/integrations/status"), unavailableIntegrations);
+}
+
+export function testDeepSeekConnection() {
+  return request("/api/integrations/deepseek/test", { method: "POST", body: JSON.stringify({}), timeout: 20_000 });
+}
+
+export function loadTasks(status = "all") {
+  const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+  return request(`/api/tasks${query}`);
+}
+
+export function createTask(task) {
+  return request("/api/tasks", { method: "POST", body: JSON.stringify(task) });
+}
+
+export function updateTask(id, patch) {
+  return request(`/api/tasks/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function deleteTask(id) {
+  return request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function clearCompletedTasks() {
+  return request("/api/tasks/completed", { method: "DELETE" });
+}
+
+export function loadWeeklyFocus(week) {
+  const query = week ? `?week=${encodeURIComponent(week)}` : "";
+  return request(`/api/weekly-focus${query}`);
+}
+
+export function createWeeklyFocus(focus) {
+  return request("/api/weekly-focus", { method: "POST", body: JSON.stringify(focus) });
+}
+
+export function updateWeeklyFocus(id, patch) {
+  return request(`/api/weekly-focus/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function deleteWeeklyFocus(id) {
+  return request(`/api/weekly-focus/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function attachTaskToWeeklyFocus(focusId, taskId) {
+  return request(`/api/weekly-focus/${encodeURIComponent(focusId)}/tasks`, { method: "POST", body: JSON.stringify({ taskId }) });
+}
+
+export function detachTaskFromWeeklyFocus(focusId, taskId) {
+  return request(`/api/weekly-focus/${encodeURIComponent(focusId)}/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+}
+
+export function generateWeeklyAiSummary(payload) {
+  return request("/api/weekly-report/ai-summary", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeout: 35_000,
+  });
+}
+
 let dailyHotLoader = null;
 let dailyHotStrategyKey = null;
 

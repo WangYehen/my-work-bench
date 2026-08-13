@@ -6,7 +6,8 @@ import { DecryptedText } from "../components/DecryptedText";
 import { DotEyes } from "../components/DotEyes";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { MetricStat } from "../components/MetricStat";
-import { loadGraph, loadOverview } from "../lib/api";
+import { loadDingTalkEvents, loadDingTalkStatus, loadGraph, loadOutlookStatus, loadOverview, loadTasks } from "../lib/api";
+import { workSnapshot } from "../data/work-management";
 import { formatCompactDate } from "../lib/format";
 
 const prefersReducedMotion = () =>
@@ -17,20 +18,16 @@ const REFRESH_INTERVAL_MS = 60_000;
 
 let overviewEntranceHasCompleted = false;
 
-const STAGE_LABELS = {
-  filmed: "已拍",
-  material_validating: "素材验证",
-  framework_ready: "框架就绪",
-  ready_to_shoot: "准备完成",
-  published: "已发布",
-  selected: "已确认",
-  idea: "候选",
-};
-
 export function OverviewPage({ onOpenDocument }) {
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [graph, setGraph] = useState(null);
+  const [outlook, setOutlook] = useState(null);
+  const [dingtalkEvents, setDingTalkEvents] = useState([]);
+  const [tasks, setTasks] = useState(() => workSnapshot.tasks.map((task) => ({
+    ...task,
+    status: task.completed ? "completed" : "open",
+  })));
   const rootRef = useRef(null);
 
   useEffect(() => {
@@ -46,6 +43,22 @@ export function OverviewPage({ onOpenDocument }) {
     refreshOverview();
     loadGraph().then((res) => {
       if (!cancelled) setGraph(res);
+    });
+    loadOutlookStatus().then((res) => {
+      if (!cancelled) setOutlook(res.data);
+    });
+    const todayKey = new Date().toISOString().slice(0, 10);
+    loadDingTalkStatus().then((res) => {
+      if (res.data?.connected || res.connected) return loadDingTalkEvents({ from: todayKey, to: todayKey });
+      return null;
+    }).then((res) => {
+      if (!cancelled && res) {
+        const events = res.data?.items || res.items || [];
+        setDingTalkEvents(events.filter((event) => event.startAt && new Date(event.startAt).getTime() > Date.now()).sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime()));
+      }
+    }).catch(() => {});
+    loadTasks().then((res) => {
+      if (!cancelled) setTasks(res.items || []);
     });
     const interval = window.setInterval(refreshOverview, REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refreshOverview);
@@ -81,12 +94,20 @@ export function OverviewPage({ onOpenDocument }) {
     return () => ctx.revert();
   }, [overview]);
 
-  const metrics = overview?.data?.metrics ?? {};
   const demoMode = overview?.data?.demoMode === true;
   const recent = overview?.data?.recent ?? [];
-  const activity = overview?.data?.activity ?? [];
   const provenance = overview?.data?.qualityNotices ?? [];
   const graphData = graph?.data;
+  const openTasks = tasks.filter((task) => task.status === "open").length;
+  const nextMeeting = dingtalkEvents[0] ? { ...dingtalkEvents[0], time: new Date(dingtalkEvents[0].startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) } : { time: "—", title: "暂无已同步日程" };
+
+  const upcomingMeetings = dingtalkEvents
+    .filter((event) => event.startAt && new Date(event.startAt).getTime() > Date.now())
+    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
+  const upcomingMeeting = upcomingMeetings[0] || null;
+  const upcomingMeetingTime = upcomingMeeting?.startAt
+    ? new Date(upcomingMeeting.startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" })
+    : "—";
 
   const today = useMemo(
     () =>
@@ -138,24 +159,31 @@ export function OverviewPage({ onOpenDocument }) {
       </section>
 
       <div className="metric-strip">
-        <MetricStat label="RAW 素材" value={metrics.raw ?? null} hint="原始证据层" />
-        <MetricStat label="WIKI 页面" value={metrics.wiki ?? null} hint="知识层" accent />
+        <MetricStat label="今日待办" value={openTasks} hint="项待完成" accent onClick={() => navigate("/todos")} />
         <MetricStat
-          label="选题"
-          value={metrics.topics ?? null}
-          hint={`候选 ${metrics.candidates ?? "—"}`}
+          label="本周关注"
+          value={workSnapshot.focus.length}
+          hint="重要想法 / 关注点"
+          onClick={() => navigate("/weekly-focus")}
         />
-        <MetricStat label="已发布作品" value={metrics.publishedWorks ?? null} hint="抖音" />
         <MetricStat
-          label="总播放"
-          value={metrics.totalPlays ?? null}
-          hint="全部作品累计"
+          label="下一场会议"
+          value={nextMeeting?.time ?? "—"}
+          hint={nextMeeting?.title ?? "暂无日程"}
           accent
+          onClick={() => navigate("/meetings")}
+        />
+        <MetricStat
+          label="待办邮件"
+          value={outlook?.todoCount ?? 0}
+          hint={outlook?.connected ? "Outlook 已连接" : "Outlook 待连接"}
+          onClick={() => navigate("/outlook")}
         />
         <MetricStat
           label="知识链接"
           value={graphData?.stats?.edgeCount ?? null}
           hint="Wiki 双向关系"
+          onClick={() => navigate("/graph")}
         />
       </div>
 
@@ -231,42 +259,27 @@ export function OverviewPage({ onOpenDocument }) {
           <section className="panel" data-panel>
             <div className="panel__head">
               <div>
-                <span className="eyebrow">PIPELINE</span>
+                <span className="eyebrow">WORK RHYTHM</span>
                 <h2 className="panel__title" style={{ marginTop: 8 }}>
-                  生产动态
+                  今日工作节奏
                 </h2>
               </div>
               <button
                 className="graph-filter"
-                onClick={() => navigate("/content")}
+                onClick={() => navigate("/todos")}
                 type="button"
               >
-                内容中心
+                查看待办
               </button>
             </div>
             <div className="pipeline">
-              {activity.length === 0 ? (
-                <div className="collection-empty">暂无拍摄动态</div>
-              ) : (
-                activity.map((item) => (
-                  <div
-                    className="pipeline__row"
-                    key={item.id}
-                    onClick={() => onOpenDocument?.(item.documentId)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") onOpenDocument?.(item.documentId);
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <span className="status-dot status-dot--accent status-dot--pulse" />
-                    <span className="pipeline__title">{item.title}</span>
-                    <span className="pipeline__stage">
-                      {STAGE_LABELS[item.status] ?? item.status}
-                    </span>
-                  </div>
-                ))
-              )}
+              {tasks.filter((task) => task.status === "open").slice(0, 3).map((task) => (
+                <div className="pipeline__row" key={task.id}>
+                  <span className="status-dot status-dot--accent status-dot--pulse" />
+                  <span className="pipeline__title">{task.title}</span>
+                  <span className="pipeline__stage">{task.priority}</span>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -284,6 +297,7 @@ export function OverviewPage({ onOpenDocument }) {
                 ["active", "活跃", overview?.data?.wikiStatus?.active],
                 ["needsReview", "待复核", overview?.data?.wikiStatus?.needsReview],
                 ["deprecated", "已弃用", overview?.data?.wikiStatus?.deprecated],
+                ["unlabeled", "未标注", overview?.data?.wikiStatus?.unlabeled],
               ].map(([key, label, count]) => (
                 <div className="pipeline__row" key={key}>
                   <span

@@ -125,6 +125,8 @@ test("builds an explicit active handoff for a trend scan", () => {
   assert.match(prompt, /`trend-scan`/);
   assert.match(prompt, /AI Agent/);
   assert.match(prompt, /只生成该模式的脱敏 Raw 报告/);
+  assert.match(prompt, /PERSONAL_DASHBOARD_VAULT_ROOT/);
+  assert.match(prompt, /不得写入仓库内的合成 Demo Vault/);
   assert.match(prompt, /按 Skill 当前的来源策略/);
   assert.doesNotMatch(prompt, /必须把 X 作为一级来源|X 的技术圈|Ego Lite/);
   assert.doesNotMatch(prompt, /普通人最近在尝试、模仿、抱怨、放弃或持续使用/);
@@ -142,6 +144,8 @@ test("builds a topic handoff without claiming it has been sent", () => {
   assert.match(prompt, /个人 AI 工作台/);
   assert.match(prompt, /为什么做完后弃用/);
   assert.match(prompt, /只生成该模式的脱敏 Raw 报告/);
+  assert.match(prompt, /PERSONAL_DASHBOARD_VAULT_ROOT/);
+  assert.match(prompt, /不得写入仓库内的合成 Demo Vault/);
   assert.match(prompt, /按 Skill 当前的来源策略/);
   assert.doesNotMatch(prompt, /主题在 X 有实质性讨论|X 技术圈|Ego Lite/);
   assert.doesNotMatch(prompt, /已经提交|已经运行|已经生成/);
@@ -155,6 +159,8 @@ test("keeps trend snapshots in a list and exposes local originals on detail", as
   ]);
 
   assert.match(pageSource, /className="social-trend-index__list"/);
+  assert.match(pageSource, /当前 Vault 尚无社媒洞察报告/);
+  assert.match(pageSource, /合规的 Raw 报告会自动显示/);
   assert.ok(pageSource.includes('to={`/social-insights/trends/${encodeURIComponent(report.id)}`}'));
   assert.match(pageSource, /className="social-trend-originals"/);
   assert.match(pageSource, /导出当前近期风向为独立 HTML/);

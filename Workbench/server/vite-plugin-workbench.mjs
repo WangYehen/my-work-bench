@@ -46,6 +46,12 @@ import {
 } from "./wiki-ingest-runner.mjs";
 import { createVaultSyncService } from "./vault-sync.mjs";
 import { loadAttentionStrategy } from "./public-config.mjs";
+import { createOutlookService, OutlookServiceError } from "./outlook.mjs";
+import { createDingTalkService, DingTalkServiceError } from "./dingtalk.mjs";
+import { createTaskService } from "./tasks.mjs";
+import { createWeeklyFocusService } from "./weekly-focus.mjs";
+import { workSnapshot } from "../src/data/work-management.js";
+import { createWeeklySummaryService } from "../shared/weekly-report-ai.mjs";
 
 const workbenchRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultVaultRoot = path.resolve(
@@ -207,10 +213,18 @@ function errorPayload(error) {
 
 function errorStatus(error) {
   const code = error?.code;
+  if (code?.startsWith("OUTLOOK_")) {
+    return ["OUTLOOK_GRAPH_REQUEST_FAILED", "OUTLOOK_MODEL_REQUEST_FAILED", "OUTLOOK_TOKEN_EXCHANGE_FAILED"].includes(code)
+      ? 502
+      : 400;
+  }
+  if (code?.startsWith("DINGTALK_")) {
+    return ["DINGTALK_CALENDAR_REQUEST_FAILED", "DINGTALK_TOKEN_EXCHANGE_FAILED"].includes(code) ? 502 : 400;
+  }
   if (code === "LOCAL_API_ORIGIN_DENIED") return 403;
   if (code === "UNSUPPORTED_MEDIA_TYPE") return 415;
   if (
-    ["JOB_NOT_FOUND", "DOCUMENT_NOT_FOUND", "READER_EXPLANATION_NOT_FOUND"].includes(code) ||
+    ["JOB_NOT_FOUND", "DOCUMENT_NOT_FOUND", "READER_EXPLANATION_NOT_FOUND", "TASK_NOT_FOUND"].includes(code) ||
     code?.endsWith("_NOT_FOUND")
   ) return 404;
   if (
@@ -281,7 +295,8 @@ function errorStatus(error) {
     code === "QUESTION_REQUIRED" ||
     code === "DOCUMENT_MISMATCH" ||
     code === "QUOTE_MISMATCH" ||
-    code?.startsWith("INVALID_MATERIAL")
+    code?.startsWith("INVALID_MATERIAL") ||
+    code?.startsWith("INVALID_TASK_")
   ) {
     return 400;
   }
@@ -632,6 +647,8 @@ function overviewPayload(index) {
         index.wiki.countsByStatus.needs_review ??
         0,
       deprecated: index.wiki.countsByStatus.deprecated ?? 0,
+      unlabeled: index.wiki.countsByStatus.unlabeled ?? 0,
+      total: index.stats.formalWikiPages,
     },
     recent: selectedRecent.map((item) => ({
       ...item,
@@ -776,6 +793,9 @@ function openLocalDocument(vaultRoot, document, target) {
 export function workbenchApiPlugin({
   vaultRoot = defaultVaultRoot,
   readerExplanationService = null,
+  outlookConfig = {},
+  dingtalkConfig = {},
+  teamReportApiUrl = "http://127.0.0.1:8787",
 } = {}) {
   let readerNoteApiMutationQueue = Promise.resolve();
   const readerNotes = createReaderNotesRepository({ vaultRoot });
@@ -784,6 +804,108 @@ export function workbenchApiPlugin({
   const readerExplanations = readerExplanationService ??
     createReaderExplanationsService({ vaultRoot });
   const vaultSync = createVaultSyncService({ vaultRoot });
+  const outlook = createOutlookService({
+    config: outlookConfig,
+    stateDirectory: path.join(workbenchRoot, ".local", "outlook"),
+  });
+  const dingtalk = createDingTalkService({
+    config: dingtalkConfig,
+    stateDirectory: path.join(workbenchRoot, ".local", "dingtalk"),
+  });
+  const generateWeeklySummary = createWeeklySummaryService({ config: outlookConfig });
+  const teamReportHealth = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1_500);
+    try {
+      const response = await fetch(`${String(teamReportApiUrl).replace(/\/$/, "")}/healthz`, { signal: controller.signal });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.ok !== true || body.databaseReady !== true) {
+        const databaseMissing = response.ok && body.ok === true && body.databaseReady !== true;
+        return { configured: false, connected: false, status: "needs_configuration", missing: databaseMissing ? ["MYSQL_URL"] : ["团队日报服务"], lastError: databaseMissing ? "团队日报服务已启动，但 MySQL 尚未连接。" : `团队日报服务不可用（HTTP ${response.status}）。` };
+      }
+      return { configured: true, connected: true, status: "ready", missing: [], lastError: null };
+    } catch (error) {
+      return { configured: false, connected: false, status: "needs_configuration", missing: ["团队日报服务"], lastError: "团队日报服务未启动。" };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const integrationStatus = async () => {
+    const [outlookStatus, dingtalkStatus, teamStatus] = await Promise.all([
+      outlook.status(),
+      dingtalk.status(),
+      teamReportHealth(),
+    ]);
+    const deepseekConfigured = Boolean(outlookConfig.deepseekApiKey);
+    return {
+      generatedAt: new Date().toISOString(),
+      services: {
+        outlook: {
+          configured: outlookStatus.configured === true,
+          connected: outlookStatus.connected === true,
+          status: outlookStatus.connected ? "connected" : outlookStatus.configured ? "needs_authorization" : "needs_configuration",
+          missing: outlookStatus.missingConfiguration || [],
+          lastSyncAt: outlookStatus.lastSyncAt || null,
+          lastError: outlookStatus.lastError || null,
+        },
+        dingtalkCalendar: {
+          configured: dingtalkStatus.configured === true,
+          connected: dingtalkStatus.connected === true,
+          status: dingtalkStatus.connected ? "connected" : dingtalkStatus.configured ? "needs_authorization" : "needs_configuration",
+          missing: dingtalkStatus.missingConfiguration || [],
+          lastSyncAt: dingtalkStatus.lastSyncAt || null,
+          lastError: dingtalkStatus.lastError || null,
+        },
+        teamReports: {
+          configured: teamStatus.configured,
+          connected: teamStatus.connected,
+          status: teamStatus.status,
+          missing: teamStatus.missing,
+          lastSyncAt: null,
+          lastError: teamStatus.lastError,
+        },
+        deepseek: {
+          configured: deepseekConfigured,
+          status: deepseekConfigured ? "ready" : "needs_configuration",
+          model: outlookConfig.deepseekModel || "deepseek-chat",
+          lastCheckAt: null,
+          lastError: null,
+        },
+      },
+    };
+  };
+  const testDeepSeek = async () => {
+    if (!outlookConfig.deepseekApiKey) {
+      const error = new Error("请先配置 DEEPSEEK_API_KEY。 ");
+      error.code = "DEEPSEEK_NOT_CONFIGURED";
+      throw error;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(`${(outlookConfig.deepseekBaseUrl || "https://api.deepseek.com").replace(/\/+$/, "")}/models`, {
+        headers: { Authorization: `Bearer ${outlookConfig.deepseekApiKey}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const error = new Error(`DeepSeek 连接失败（HTTP ${response.status}）。`);
+        error.code = "DEEPSEEK_REQUEST_FAILED";
+        throw error;
+      }
+      return { ok: true, checkedAt: new Date().toISOString(), model: outlookConfig.deepseekModel || "deepseek-chat" };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  const tasks = createTaskService({
+    dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
+    seedTasks: workSnapshot.tasks,
+  });
+  const weeklyFocus = createWeeklyFocusService({
+    dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
+    taskService: tasks,
+    seedFocus: workSnapshot.focus,
+  });
   const currentIndex = () => vaultSync.currentIndex();
   const refreshIndex = (options = {}) => vaultSync.refresh({
     reason: "manual",
@@ -947,9 +1069,12 @@ export function workbenchApiPlugin({
     async closeBundle() {
       await vaultSync.close();
       await readerExplanations.close?.();
+      await outlook.close();
+      tasks.close();
     },
     configureServer(server) {
       vaultSync.attachWatcher(server.watcher);
+      outlook.startScheduler();
       server.httpServer?.once("close", () => {
         void vaultSync.close();
       });
@@ -993,6 +1118,151 @@ export function workbenchApiPlugin({
 
           if (req.method === "GET" && url.pathname === "/api/config/attention") {
             return json(res, 200, await loadAttentionStrategy(workbenchRoot));
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/outlook/status") {
+            return json(res, 200, await outlook.status());
+          }
+          if (req.method === "GET" && url.pathname === "/api/dingtalk/status") {
+            return json(res, 200, await dingtalk.status());
+          }
+          if (req.method === "GET" && url.pathname === "/api/integrations/status") {
+            return json(res, 200, await integrationStatus());
+          }
+          if (req.method === "POST" && url.pathname === "/api/integrations/deepseek/test") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "DEEPSEEK_INVALID_TEST_REQUEST");
+            return json(res, 200, await testDeepSeek());
+          }
+          if (req.method === "POST" && url.pathname === "/api/dingtalk/oauth/start") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "DINGTALK_INVALID_OAUTH_REQUEST");
+            return json(res, 200, await dingtalk.startOAuth());
+          }
+          if (req.method === "GET" && url.pathname === "/api/dingtalk/oauth/callback") {
+            await dingtalk.completeOAuth({ code: url.searchParams.get("code"), state: url.searchParams.get("state"), error: url.searchParams.get("error") });
+            res.writeHead(302, { "Cache-Control": "no-store", Location: "/meetings?connected=1" }); res.end(); return;
+          }
+          if (req.method === "POST" && url.pathname === "/api/dingtalk/sync") {
+            const body = await readJson(req, 8 * 1024);
+            assertAllowedObjectKeys(body, new Set(["from", "to", "resources"]), "DINGTALK_INVALID_SYNC_REQUEST");
+            return json(res, 200, await dingtalk.sync(body));
+          }
+          if (req.method === "GET" && url.pathname === "/api/dingtalk/events") {
+            const from = url.searchParams.get("from") || undefined; const to = url.searchParams.get("to") || undefined;
+            return json(res, 200, { items: await dingtalk.list({ from, to }) });
+          }
+          if (req.method === "GET" && url.pathname === "/api/dingtalk/todos") {
+            return json(res, 200, { items: await dingtalk.todos() });
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/tasks") {
+            return json(res, 200, { items: tasks.list(url.searchParams.get("status") || "all") });
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/weekly-focus") {
+            return json(res, 200, { items: weeklyFocus.list(url.searchParams.get("week") || undefined) });
+          }
+          if (req.method === "POST" && url.pathname === "/api/weekly-focus") {
+            const body = await readJson(req, 16 * 1024);
+            assertAllowedObjectKeys(body, new Set(["weekStart", "title", "detail", "progress", "nextStep", "status"]), "INVALID_FOCUS_REQUEST");
+            return json(res, 201, weeklyFocus.create(body));
+          }
+          const focusTaskMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)\/tasks\/([^/]+)$/);
+          if (focusTaskMatch && req.method === "DELETE") {
+            return json(res, 200, weeklyFocus.detachTask(decodeURIComponent(focusTaskMatch[1]), decodeURIComponent(focusTaskMatch[2])));
+          }
+          const focusTasksMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)\/tasks$/);
+          if (focusTasksMatch && req.method === "POST") {
+            const body = await readJson(req, 8 * 1024);
+            assertAllowedObjectKeys(body, new Set(["taskId"]), "INVALID_FOCUS_TASK_REQUEST");
+            return json(res, 201, weeklyFocus.attachTask(decodeURIComponent(focusTasksMatch[1]), body.taskId));
+          }
+          const focusMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)$/);
+          if (focusMatch && req.method === "PATCH") {
+            const body = await readJson(req, 16 * 1024);
+            assertAllowedObjectKeys(body, new Set(["title", "detail", "progress", "nextStep", "status"]), "INVALID_FOCUS_REQUEST");
+            return json(res, 200, weeklyFocus.update(decodeURIComponent(focusMatch[1]), body));
+          }
+          if (focusMatch && req.method === "DELETE") {
+            return json(res, 200, weeklyFocus.remove(decodeURIComponent(focusMatch[1])));
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/tasks") {
+            const body = await readJson(req, 16 * 1024);
+            assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt"]), "INVALID_TASK_REQUEST");
+            return json(res, 201, tasks.create(body));
+          }
+
+          if (req.method === "DELETE" && url.pathname === "/api/tasks/completed") {
+            return json(res, 200, tasks.clearCompleted());
+          }
+          if (req.method === "POST" && url.pathname === "/api/weekly-report/ai-summary") {
+            const body = await readJson(req, 256 * 1024);
+            assertAllowedObjectKeys(body, new Set(["period", "tasks", "outlookItems", "dailyReports", "weeklyFocus"]), "WEEKLY_REPORT_INVALID_REQUEST");
+            return json(res, 200, await generateWeeklySummary(body));
+          }
+          const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
+          if (taskMatch && req.method === "PATCH") {
+            const body = await readJson(req, 16 * 1024);
+            assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt", "status"]), "INVALID_TASK_REQUEST");
+            return json(res, 200, tasks.update(decodeURIComponent(taskMatch[1]), body));
+          }
+          if (taskMatch && req.method === "DELETE") {
+            return json(res, 200, tasks.remove(decodeURIComponent(taskMatch[1])));
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/outlook/consent") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(["accepted"]), "OUTLOOK_INVALID_CONSENT");
+            if (body.accepted !== true) {
+              throw new OutlookServiceError("OUTLOOK_CONSENT_REQUIRED", "需要明确同意后才能发送邮件正文至 DeepSeek。");
+            }
+            return json(res, 200, await outlook.acceptConsent());
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/outlook/oauth/start") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "OUTLOOK_INVALID_OAUTH_REQUEST");
+            return json(res, 200, await outlook.startOAuth());
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/outlook/oauth/callback") {
+            await outlook.completeOAuth({
+              code: url.searchParams.get("code"),
+              state: url.searchParams.get("state"),
+              error: url.searchParams.get("error"),
+            });
+            res.writeHead(302, { "Cache-Control": "no-store", Location: "/outlook?connected=1" });
+            res.end();
+            return;
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/outlook/sync") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "OUTLOOK_INVALID_SYNC_REQUEST");
+            return json(res, 200, await outlook.sync());
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/outlook/todos") {
+            return json(res, 200, await outlook.list("todos"));
+          }
+
+          if (req.method === "GET" && url.pathname === "/api/outlook/archive") {
+            return json(res, 200, await outlook.list("archive"));
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/outlook/disconnect") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "OUTLOOK_INVALID_DISCONNECT_REQUEST");
+            return json(res, 200, await outlook.disconnect());
+          }
+
+          const outlookMessageMatch = url.pathname.match(/^\/api\/outlook\/todos\/([^/]+)\/status$/);
+          if (req.method === "POST" && outlookMessageMatch) {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(["status"]), "OUTLOOK_INVALID_STATUS_REQUEST");
+            return json(res, 200, await outlook.setMessageStatus(decodeURIComponent(outlookMessageMatch[1]), body.status));
           }
 
           if (req.method === "GET" && url.pathname === "/api/materials") {

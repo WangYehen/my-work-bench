@@ -4,7 +4,6 @@ import { AppShell } from "./components/AppShell";
 import { DocumentDrawer } from "./components/DocumentDrawer";
 import { SearchPalette } from "./components/SearchPalette";
 import { CollectionPage } from "./pages/CollectionPage";
-import { DouyinPage } from "./pages/DouyinPage";
 import { DailyHotPage } from "./pages/DailyHotPage";
 import { GraphPage } from "./pages/GraphPage";
 import { MaterialsPage } from "./pages/MaterialsPage";
@@ -12,8 +11,14 @@ import { BooksPage } from "./pages/BooksPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { SystemPage } from "./pages/SystemPage";
 import { TopicsPage } from "./pages/TopicsPage";
+import { WorkManagementPage } from "./pages/WorkManagementPage";
+import { MeetingsPage } from "./pages/MeetingsPage";
+import { DailyReportPage } from "./pages/DailyReportPage";
+import { TeamReportsAdminPage } from "./pages/TeamReportsAdminPage";
+import { OutlookPage } from "./pages/OutlookPage";
 import { SocialInsightsPage, SocialTrendDetailPage } from "./pages/SocialInsightsPage";
 import { useVaultSync } from "./hooks/useVaultSync";
+import { getDailyReportUser, subscribeDailyReportAuth } from "./lib/daily-reports";
 
 const localWorkbench = import.meta.env.VITE_WORKBENCH_HOSTED !== "true";
 
@@ -23,11 +28,22 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState(null);
   const [readerContext, setReaderContext] = useState(null);
+  const [teamUser, setTeamUser] = useState(null);
   const vaultSync = useVaultSync(location.pathname);
   const routeRevision =
     location.pathname.startsWith("/social-insights")
     ? location.pathname
     : `${location.pathname}:${vaultSync.revision}`;
+
+  useEffect(() => {
+    let mounted = true;
+    getDailyReportUser()
+      .then((result) => { if (mounted) setTeamUser(result?.user || result || null); })
+      .catch(() => { if (mounted) setTeamUser(null); });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => subscribeDailyReportAuth(setTeamUser), []);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -71,7 +87,7 @@ export function App() {
 
   return (
     <>
-      <AppShell onOpenSearch={appContext.openSearch} sync={vaultSync}>
+      <AppShell onOpenSearch={appContext.openSearch} sync={vaultSync} teamUser={teamUser}>
         <Routes key={routeRevision}>
           <Route path="/" element={<OverviewPage onOpenDocument={openDocument} />} />
           <Route path="/graph" element={<GraphPage onOpenDocument={openDocument} />} />
@@ -94,6 +110,13 @@ export function App() {
           <Route path="/books" element={<BooksPage onOpenDocument={openDocument} />} />
           <Route path="/books/:bookId" element={<BooksPage onOpenDocument={openDocument} />} />
           <Route path="/daily-hot" element={<DailyHotPage />} />
+          <Route path="/todos" element={<WorkManagementPage module="todos" />} />
+          <Route path="/weekly-focus" element={<WorkManagementPage module="focus" />} />
+          <Route path="/meetings" element={<MeetingsPage />} />
+          {localWorkbench ? <Route path="/outlook" element={<OutlookPage />} /> : null}
+          <Route path="/weekly-report" element={<WorkManagementPage module="reports" />} />
+          <Route path="/daily-report" element={<DailyReportPage />} />
+          <Route path="/team-reports" element={teamUser?.role === "member" ? <Navigate replace to="/daily-report" /> : <TeamReportsAdminPage />} />
           {localWorkbench ? (
             <Route
               path="/social-insights"
@@ -131,18 +154,6 @@ export function App() {
             path="/topics"
             element={<TopicsPage onOpenDocument={openDocument} />}
           />
-          <Route
-            path="/content"
-            element={
-              <CollectionPage
-                kind="content"
-                eyebrow="CONTENT PIPELINE"
-                title="内容中心"
-                onOpenDocument={openDocument}
-              />
-            }
-          />
-          <Route path="/douyin" element={<DouyinPage />} />
           <Route path="/system" element={<SystemPage />} />
           <Route path="*" element={<Navigate replace to="/" />} />
         </Routes>

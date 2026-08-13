@@ -1,149 +1,152 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  IconBrandDaysCounter,
+  IconCheck,
+  IconChevronDown,
+  IconClipboard,
+  IconExternalLink,
+  IconKey,
+  IconLink,
+  IconMail,
+  IconRefresh,
+  IconShieldLock,
+  IconUsers,
+  IconX,
+} from "@tabler/icons-react";
 import { PageHeader } from "../components/PageHeader";
-import { getRuntimeStatus, refreshVault } from "../lib/api";
+import { getRuntimeStatus, loadIntegrationsStatus, refreshVault, startDingTalkOAuth, testDeepSeekConnection } from "../lib/api";
+import { checkDingTalkDailyReportConnection, exchangeDingTalkDailyReportLogin, getDailyReportUser, logoutDailyReport, startDingTalkDailyReportLogin, subscribeDailyReportAuth } from "../lib/daily-reports";
 import { formatFullDate } from "../lib/format";
+
+const serviceDefinitions = {
+  outlook: {
+    eyebrow: "OUTLOOK / MAIL",
+    title: "工作邮箱",
+    description: "读取需要处理的邮件，并在本地生成待办。",
+    icon: IconMail,
+    route: "/outlook",
+    docs: "https://learn.microsoft.com/entra/identity-platform/quickstart-register-app",
+    steps: ["在 Microsoft Entra 注册应用", "把配置片段加入 Workbench/.env", "重启 Workbench 后重新检测", "在工作邮箱页面完成 Microsoft 授权"],
+    env: "OUTLOOK_ENTRA_CLIENT_ID=your-client-id\nOUTLOOK_OAUTH_REDIRECT_URI=http://127.0.0.1:5174/api/outlook/oauth/callback\nOUTLOOK_TOKEN_ENCRYPTION_KEY=your-32-byte-base64-key",
+  },
+  dingtalkCalendar: {
+    eyebrow: "DINGTALK / CALENDAR",
+    title: "钉钉日程与待办",
+    description: "读取当前账号的会议、日程和待办，不修改钉钉数据。",
+    icon: IconBrandDaysCounter,
+    route: "/meetings",
+    docs: "https://open.dingtalk.com/document/orgapp-server/obtain-user-token",
+    steps: ["在钉钉开放平台创建应用", "把配置片段加入 Workbench/.env", "重启 Workbench 后重新检测", "在会议日程页面完成钉钉授权"],
+    env: "DINGTALK_CLIENT_ID=your-dingtalk-app-key\nDINGTALK_CLIENT_SECRET=your-dingtalk-app-secret\nDINGTALK_OAUTH_REDIRECT_URI=http://127.0.0.1:5174/api/dingtalk/oauth/callback\nDINGTALK_TOKEN_ENCRYPTION_KEY=your-32-byte-base64-key",
+  },
+  teamReports: {
+    eyebrow: "DINGTALK / TEAM",
+    title: "团队日报",
+    description: "使用钉钉组织身份提交或查看权限范围内的日报。",
+    icon: IconUsers,
+    route: "/daily-report",
+    docs: null,
+    steps: ["启动团队日报服务并连接 MySQL", "如需钉钉登录，再配置钉钉 OAuth 应用", "重新检测服务状态", "在这里使用钉钉组织账号登录"],
+    env: "MYSQL_URL=mysql://root:root@localhost:3306/workbench_reports\n# 本机默认使用 http://127.0.0.1:8787，无需额外配置服务地址",
+  },
+  deepseek: {
+    eyebrow: "AI / DEEPSEEK",
+    title: "DeepSeek",
+    description: "用于 Outlook 邮件分类和本地周报总结。邮件正文只在处理时发送，不在本地保存。",
+    icon: IconKey,
+    route: "/weekly-report",
+    docs: "https://platform.deepseek.com/",
+    steps: ["创建 DeepSeek API Key", "把 API Key 加入 Workbench/.env", "重启 Workbench 后重新检测", "点击测试连接确认服务可用"],
+    env: "DEEPSEEK_API_KEY=your-api-key\nDEEPSEEK_BASE_URL=https://api.deepseek.com\nDEEPSEEK_MODEL=deepseek-chat",
+  },
+};
+
+const statusLabels = {
+  needs_configuration: ["需要配置", "warn"],
+  needs_authorization: ["等待授权", "warn"],
+  connected: ["已连接", "ok"],
+  ready: ["已配置", "ok"],
+  degraded: ["部分可用", "warn"],
+  error: ["存在错误", "error"],
+};
+
+function StatusBadge({ status }) {
+  const [label, tone] = statusLabels[status] || ["检测中", "muted"];
+  return <span className={`integration-status integration-status--${tone}`}><span className="status-dot" />{label}</span>;
+}
+
+function ServiceCard({ service, item, expanded, onToggle, onCopy, onTest, testing }) {
+  const Icon = service.icon;
+  const missing = item?.missing || [];
+  return <article className={`integration-card${expanded ? " is-expanded" : ""}`}>
+    <button className="integration-card__head" onClick={onToggle} type="button" aria-expanded={expanded}>
+      <span className="integration-card__icon"><Icon size={19} /></span>
+      <span className="integration-card__identity"><span className="eyebrow">{service.eyebrow}</span><strong>{service.title}</strong><small>{service.description}</small></span>
+      <StatusBadge status={item?.status} />
+      <IconChevronDown className="integration-card__chevron" size={18} />
+    </button>
+    {expanded ? <div className="integration-card__body">
+      {missing.length ? <div className="integration-missing" role="status"><IconX size={15} /><span>还缺少 {missing.length} 项配置</span><div>{missing.map((key) => <code key={key}>{key}</code>)}</div></div> : <div className="integration-ready" role="status"><IconCheck size={15} />配置检查已通过</div>}
+      <ol className="integration-steps">{service.steps.map((step, index) => <li key={step} className={index === 0 && missing.length ? "is-current" : ""}><span>{index + 1}</span>{step}</li>)}</ol>
+      <div className="integration-code"><div><strong>配置片段</strong><small>复制后粘贴到 Workbench/.env，不会在网页中保存密钥。</small></div><button className="work-link" onClick={onCopy} type="button"><IconClipboard size={14} />复制</button><pre><code>{service.env}</code></pre></div>
+      <div className="integration-card__actions">
+        {service.docs ? <a className="work-button" href={service.docs} rel="noreferrer" target="_blank"><IconExternalLink size={15} />官方说明</a> : null}
+        {service.title === "DeepSeek" ? <button className="work-button" disabled={testing || !item?.configured} onClick={onTest} type="button"><IconRefresh size={15} />{testing ? "测试中…" : "测试连接"}</button> : <a className="work-button work-button--primary" href={service.route}><IconLink size={15} />前往授权</a>}
+      </div>
+    </div> : null}
+  </article>;
+}
 
 export function SystemPage() {
   const [runtime, setRuntime] = useState({ data: null, source: "loading", error: null });
+  const [integrations, setIntegrations] = useState({ data: null, source: "loading", error: null });
+  const [expanded, setExpanded] = useState("outlook");
   const [refreshing, setRefreshing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [teamUser, setTeamUser] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
 
-  const loadRuntime = async () => {
-    const response = await getRuntimeStatus();
-    setRuntime(response);
+  const loadAll = async () => {
+    const [nextRuntime, nextIntegrations] = await Promise.all([getRuntimeStatus(), loadIntegrationsStatus()]);
+    setRuntime(nextRuntime); setIntegrations(nextIntegrations);
   };
-
+  useEffect(() => { void loadAll(); }, []);
+  useEffect(() => { let mounted = true; getDailyReportUser().then((result) => { if (mounted) setTeamUser(result?.user || result || null); }).catch(() => { if (mounted) setTeamUser(null); }); return () => { mounted = false; }; }, []);
+  useEffect(() => subscribeDailyReportAuth(setTeamUser), []);
   useEffect(() => {
-    let cancelled = false;
-    getRuntimeStatus().then((response) => {
-      if (!cancelled) setRuntime(response);
-    });
-    return () => {
-      cancelled = true;
-    };
+    const params = new URLSearchParams(globalThis.location?.search || "");
+    const token = params.get("dingtalk_login");
+    const callbackError = params.get("dingtalk_error_message");
+    if (callbackError) setAuthError(callbackError);
+    if (!token) { if (callbackError) globalThis.history?.replaceState({}, "", globalThis.location.pathname); return undefined; }
+    setAuthBusy(true); setAuthError("");
+    exchangeDingTalkDailyReportLogin(token).then(setTeamUser).catch((error) => setAuthError(error.message || "钉钉登录失败")).finally(() => setAuthBusy(false));
+    globalThis.history?.replaceState({}, "", globalThis.location.pathname);
+    return undefined;
   }, []);
 
-  const isLoading = runtime.source === "loading";
+  const services = integrations.data?.services || {};
+  const serviceList = useMemo(() => Object.entries(serviceDefinitions), []);
+  const configuredCount = serviceList.filter(([key]) => services[key]?.configured).length;
   const vault = runtime.data?.vault;
   const sync = runtime.data?.sync;
   const codex = runtime.data?.codex;
-  const vaultConnected = vault?.connected === true;
-  const vaultHasErrors = (vault?.errors ?? 0) > 0;
-  const codexAvailable = codex?.available === true;
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshVault();
-      await loadRuntime();
-    } catch (error) {
-      console.error("刷新失败:", error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const handleRefresh = async () => { setRefreshing(true); setNotice(""); try { await refreshVault(); await loadAll(); setNotice("配置和 Vault 状态已更新。"); } catch (error) { setNotice(error.message || "刷新失败，请稍后重试。"); } finally { setRefreshing(false); } };
+  const copy = async (text) => { await navigator.clipboard?.writeText(text); setNotice("配置片段已复制，请粘贴到 Workbench/.env。"); };
+  const testDeepSeek = async () => { setTesting(true); setNotice(""); try { await testDeepSeekConnection(); setNotice("DeepSeek 连接测试成功。"); await loadAll(); } catch (error) { setNotice(error.message || "DeepSeek 连接测试失败。"); } finally { setTesting(false); } };
+  const handleTeamLogin = async () => { setAuthBusy(true); setAuthError(""); try { const result = await startDingTalkDailyReportLogin(); const authorizationUrl = result?.authorizationUrl || result?.data?.authorizationUrl; if (!authorizationUrl) throw new Error("钉钉登录地址生成失败"); globalThis.location.assign(authorizationUrl); } catch (error) { setAuthError(error.message || "钉钉登录失败"); setAuthBusy(false); } };
+  const handleTeamCheck = async () => { setAuthBusy(true); setAuthError(""); try { const result = await checkDingTalkDailyReportConnection(); setAuthError(result.reachable ? "钉钉接口连接正常，可以重新登录。" : `${result.error?.message || "钉钉接口暂时无法连接"}${result.proxyConfigured ? "" : "；当前未配置代理"}`); } catch (error) { setAuthError(error.message || "钉钉连接检查失败"); } finally { setAuthBusy(false); } };
+  const handleTeamLogout = async () => { setAuthBusy(true); setAuthError(""); try { await logoutDailyReport(); setTeamUser(null); } catch (error) { setAuthError(error.message || "退出登录失败"); } finally { setAuthBusy(false); } };
 
-  return (
-    <div className="page page--system">
-      <PageHeader
-        eyebrow="SYSTEM"
-        title="系统状态"
-        description="检查本地 Vault 索引与 Codex 运行时连接状态"
-      />
-
-      <div className="system-grid">
-        {/* Vault Index Panel */}
-        <div className="panel">
-          <div className="panel__head">
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span
-                className={`status-dot ${
-                  isLoading
-                    ? ""
-                    : vaultConnected && !vaultHasErrors
-                      ? "status-dot--ok"
-                      : "status-dot--warn"
-                }`}
-              />
-              <h2 className="panel__title">Vault 索引</h2>
-            </div>
-          </div>
-
-          <div>
-            <div className="system-kv">
-              <dt>标签</dt>
-              <dd>{vault?.label || "本地 Vault"}</dd>
-            </div>
-            <div className="system-kv">
-              <dt>文档数</dt>
-              <dd>{isLoading ? "—" : vault?.documents ?? "—"}</dd>
-            </div>
-            <div className="system-kv">
-              <dt>索引时间</dt>
-              <dd>{formatFullDate(vault?.generatedAt)}</dd>
-            </div>
-            <div className="system-kv">
-              <dt>错误数</dt>
-              <dd>{isLoading ? "—" : vault?.errors ?? "—"}</dd>
-            </div>
-            <div className="system-kv">
-              <dt>文件同步</dt>
-              <dd>{isLoading ? "—" : sync?.status || "—"}</dd>
-            </div>
-            <div className="system-kv">
-              <dt>索引版本</dt>
-              <dd>{isLoading ? "—" : sync?.indexVersion ?? "—"}</dd>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="graph-filter"
-            onClick={handleRefresh}
-            disabled={refreshing || !vaultConnected}
-            style={{ marginTop: "16px", width: "100%" }}
-          >
-            {refreshing ? "重建中…" : "重建索引"}
-          </button>
-        </div>
-
-        {/* Codex Runtime Panel */}
-        <div className="panel">
-          <div className="panel__head">
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span
-                className={`status-dot ${
-                  isLoading ? "" : codexAvailable ? "status-dot--ok" : ""
-                }`}
-              />
-              <h2 className="panel__title">Codex 运行时</h2>
-            </div>
-          </div>
-
-          <div>
-            <div className="system-kv">
-              <dt>可用性</dt>
-              <dd>
-                {isLoading
-                  ? "检测中"
-                  : codexAvailable
-                    ? "可用"
-                    : "不可用"}
-              </dd>
-            </div>
-            <div className="system-kv">
-              <dt>来源</dt>
-              <dd>{isLoading ? "—" : codex?.source || "—"}</dd>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Data boundary note */}
-      <div className="panel" style={{ marginTop: "20px" }}>
-        <p className="provenance">
-          工作台通过本地文件事件自动更新 Vault 索引；数据缺失显示为 —，不做估算。
-        </p>
-      </div>
-    </div>
-  );
+  return <div className="page page--system">
+    <PageHeader eyebrow="SYSTEM / SERVICES" title="服务配置" description="集中检查第三方服务、复制本地配置并完成授权。密钥只保留在你的本机配置中。" />
+    {notice ? <div className="work-notice" role="status"><IconShieldLock size={17} /><span>{notice}</span></div> : null}
+    <section className="integration-summary panel"><div><span className="eyebrow">INTEGRATION HEALTH</span><h2 className="panel__title">第三方服务</h2><p>已配置 {configuredCount}/{serviceList.length} 项。先完成配置，再前往对应功能页授权。</p></div><button className="work-button" disabled={refreshing} onClick={handleRefresh} type="button"><IconRefresh size={15} />{refreshing ? "检测中…" : "重新检测"}</button></section>
+    <section className="integration-list" aria-label="第三方服务配置列表">{serviceList.map(([key, service]) => <ServiceCard key={key} service={service} item={services[key]} expanded={expanded === key} onToggle={() => setExpanded(expanded === key ? "" : key)} onCopy={() => copy(service.env)} onTest={key === "deepseek" ? testDeepSeek : undefined} testing={key === "deepseek" && testing} />)}</section>
+    <section className="panel system-team-auth"><div className="panel__head"><div><span className="eyebrow">TEAM / DINGTALK</span><h2 className="panel__title">团队日报身份</h2></div></div>{teamUser ? <div className="system-team-auth__signed-in"><div><strong>{teamUser.displayName || teamUser.username}</strong><span>{teamUser.departmentName || "未同步部门"} · {teamUser.role === "admin" ? "管理员" : "成员"}</span></div><button className="work-button" disabled={authBusy} onClick={handleTeamLogout} type="button">退出钉钉登录</button></div> : <div className="system-team-auth__form"><p>使用钉钉组织账号登录后，才能提交或查看团队日报。</p><div className="report-hero__actions"><button className="work-button" disabled={authBusy} onClick={handleTeamCheck} type="button">检查连接</button><button className="work-button work-button--primary" disabled={authBusy} onClick={handleTeamLogin} type="button">{authBusy ? "处理中…" : "使用钉钉登录"}</button></div></div>}{authError ? <div className="work-error" role="alert">{authError}</div> : null}</section>
+    <div className="system-grid"><div className="panel"><div className="panel__head"><h2 className="panel__title">Vault 索引</h2></div><div><div className="system-kv"><dt>标签</dt><dd>{vault?.label || "本地 Vault"}</dd></div><div className="system-kv"><dt>文档数</dt><dd>{vault?.documents ?? "—"}</dd></div><div className="system-kv"><dt>索引时间</dt><dd>{formatFullDate(vault?.generatedAt)}</dd></div><div className="system-kv"><dt>错误数</dt><dd>{vault?.errors ?? "—"}</dd></div><div className="system-kv"><dt>文件同步</dt><dd>{sync?.status || "—"}</dd></div></div></div><div className="panel"><div className="panel__head"><h2 className="panel__title">Codex 运行时</h2></div><div><div className="system-kv"><dt>可用性</dt><dd>{codex?.available ? "可用" : "不可用"}</dd></div><div className="system-kv"><dt>来源</dt><dd>{codex?.source || "—"}</dd></div></div></div></div>
+  </div>;
 }

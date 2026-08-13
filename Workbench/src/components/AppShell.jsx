@@ -1,20 +1,26 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
-  IconBrandTiktok,
   IconBooks,
   IconBulb,
-  IconClipboardList,
+  IconCalendarEvent,
+  IconCalendarStats,
+  IconChecklist,
+  IconClipboardCheck,
   IconCommand,
   IconHome,
   IconLibrary,
+  IconMail,
   IconMenu2,
   IconRadar2,
+  IconReportAnalytics,
   IconSearch,
   IconSettings,
   IconSocial,
+  IconSparkles,
   IconStack2,
   IconTopologyStar3,
+  IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
 
@@ -22,6 +28,13 @@ const localWorkbench = import.meta.env.VITE_WORKBENCH_HOSTED !== "true";
 
 const primaryNavigation = [
   { to: "/", label: "总览", icon: IconHome, end: true },
+  { to: "/todos", label: "今日待办", icon: IconChecklist },
+  { to: "/weekly-focus", label: "本周关注", icon: IconBulb },
+  { to: "/meetings", label: "会议日程", icon: IconCalendarStats },
+  ...(localWorkbench ? [{ to: "/outlook", label: "工作邮箱", icon: IconMail }] : []),
+  { to: "/weekly-report", label: "周报总结", icon: IconReportAnalytics },
+  { to: "/daily-report", label: "日报提交", icon: IconClipboardCheck },
+  { to: "/team-reports", label: "团队日报", icon: IconUsersGroup },
   { to: "/graph", label: "知识星图", icon: IconTopologyStar3 },
   { to: "/wiki", label: "Wiki 层", icon: IconLibrary },
   { to: "/materials", label: "素材层", icon: IconStack2 },
@@ -30,13 +43,14 @@ const primaryNavigation = [
   ...(localWorkbench
     ? [{ to: "/social-insights", label: "社媒洞察", icon: IconSocial }]
     : []),
-  { to: "/topics", label: "灵感库", icon: IconBulb },
-  { to: "/content", label: "内容中心", icon: IconClipboardList },
-  { to: "/douyin", label: "抖音数据", icon: IconBrandTiktok },
+  { to: "/topics", label: "灵感库", icon: IconSparkles },
 ];
 
-export function AppShell({ children, onOpenSearch, sync }) {
+export function AppShell({ children, onOpenSearch, sync, teamUser }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navigation = teamUser?.role === "member"
+    ? primaryNavigation.filter((item) => item.to !== "/team-reports")
+    : primaryNavigation;
 
   useEffect(() => {
     if (!mobileOpen) return undefined;
@@ -100,7 +114,7 @@ export function AppShell({ children, onOpenSearch, sync }) {
           <div className="sidebar__tag">PERSONAL AI WORKBENCH</div>
 
           <nav aria-label="主要导航" className="sidebar__nav">
-            {primaryNavigation.map((item) => {
+            {navigation.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink

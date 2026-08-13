@@ -9,6 +9,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { DEFAULT_VAULT_ROOT, isPathInside } from "./security.mjs";
@@ -20,7 +21,7 @@ const STORE_VERSION = 1;
 const MAX_STORE_BYTES = 2 * 1024 * 1024;
 const MAX_ITEMS = 5_000;
 const MAX_PATH_LENGTH = 768;
-const STORE_DIRECTORY = path.posix.dirname(MATERIAL_READING_STATE_PATH);
+const DEFAULT_STORE_DIRECTORY = path.posix.dirname(MATERIAL_READING_STATE_PATH);
 
 export class MaterialReadingStateError extends Error {
   constructor(code, message, details = undefined) {
@@ -46,9 +47,9 @@ function normalizePath(value) {
     result.includes("\\") ||
     result.includes("\0") ||
     result.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
-    !result.startsWith("10_raw/")
+    !(result.startsWith("10_raw/") || result.startsWith("raw/"))
   ) {
-    fail("INVALID_MATERIAL_PATH", "待看状态只接受 10_raw 下的 Vault 相对路径。");
+    fail("INVALID_MATERIAL_PATH", "待看状态只接受素材层下的 Vault 相对路径。");
   }
   return result;
 }
@@ -72,7 +73,7 @@ function emptyStore() {
   return { version: STORE_VERSION, updatedAt: null, items: [] };
 }
 
-async function ensureSafeStorageDirectory(vaultRoot) {
+async function ensureSafeStorageDirectory(vaultRoot, storeDirectory) {
   let realVaultRoot;
   try {
     realVaultRoot = await realpath(path.resolve(vaultRoot));
@@ -83,7 +84,7 @@ async function ensureSafeStorageDirectory(vaultRoot) {
   if (!rootDetails.isDirectory()) fail("INVALID_VAULT", "Vault 不是目录。");
 
   let parent = realVaultRoot;
-  for (const segment of STORE_DIRECTORY.split("/")) {
+  for (const segment of storeDirectory.split("/")) {
     const candidate = path.join(parent, segment);
     let details;
     try {
@@ -108,9 +109,10 @@ async function ensureSafeStorageDirectory(vaultRoot) {
   return parent;
 }
 
-async function safeStorePath(vaultRoot) {
-  const directory = await ensureSafeStorageDirectory(vaultRoot);
-  const targetPath = path.join(directory, path.posix.basename(MATERIAL_READING_STATE_PATH));
+async function safeStorePath(vaultRoot, storePath) {
+  const storeDirectory = path.posix.dirname(storePath);
+  const directory = await ensureSafeStorageDirectory(vaultRoot, storeDirectory);
+  const targetPath = path.join(directory, path.posix.basename(storePath));
   try {
     const details = await lstat(targetPath);
     if (details.isSymbolicLink() || !details.isFile()) {
@@ -171,14 +173,16 @@ export function createMaterialReadingStateRepository({
   now = () => new Date(),
 } = {}) {
   const resolvedRoot = path.resolve(vaultRoot);
-  const absoluteStorePath = path.resolve(resolvedRoot, MATERIAL_READING_STATE_PATH);
+  const materialRoot = existsSync(path.join(resolvedRoot, "raw")) ? "raw" : "10_raw";
+  const storePath = `${materialRoot}/my-thoughts/reading-notes/${path.posix.basename(MATERIAL_READING_STATE_PATH)}`;
+  const absoluteStorePath = path.resolve(resolvedRoot, storePath);
   if (!isPathInside(resolvedRoot, absoluteStorePath)) {
     fail("UNSAFE_MATERIAL_READING_STATE", "素材待看状态路径越出了 Vault。");
   }
   let mutationQueue = Promise.resolve();
 
   async function readStore() {
-    const targetPath = await safeStorePath(resolvedRoot);
+    const targetPath = await safeStorePath(resolvedRoot, storePath);
     let details;
     try {
       details = await stat(targetPath);
@@ -202,7 +206,7 @@ export function createMaterialReadingStateRepository({
 
   async function writeStore(store) {
     const normalized = validatePersistedStore(store);
-    const targetPath = await safeStorePath(resolvedRoot);
+    const targetPath = await safeStorePath(resolvedRoot, storePath);
     const temporaryPath = `${targetPath}.${randomUUID()}.tmp`;
     const content = `${JSON.stringify(normalized, null, 2)}\n`;
     if (Buffer.byteLength(content, "utf8") > MAX_STORE_BYTES) {
@@ -210,7 +214,7 @@ export function createMaterialReadingStateRepository({
     }
     try {
       await writeFile(temporaryPath, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
-      await safeStorePath(resolvedRoot);
+      await safeStorePath(resolvedRoot, storePath);
       await rename(temporaryPath, targetPath);
     } finally {
       await unlink(temporaryPath).catch(() => {});
