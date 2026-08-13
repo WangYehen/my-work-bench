@@ -82,7 +82,13 @@ export function loadOutlookStatus() {
 }
 
 export function loadOutlookTodos(kind = "todos") {
-  const endpoint = kind === "archive" ? "/api/outlook/archive" : "/api/outlook/todos";
+  const endpoint = kind === "archive"
+    ? "/api/outlook/archive"
+    : kind === "informational"
+      ? "/api/outlook/informational"
+      : kind === "uncertain"
+        ? "/api/outlook/uncertain"
+        : "/api/outlook/todos";
   return withFallback(() => request(endpoint), { ...unavailableOutlook, items: [] });
 }
 
@@ -112,6 +118,20 @@ export function setOutlookMessageStatus(id, status) {
   return request(`/api/outlook/todos/${encodeURIComponent(id)}/status`, {
     method: "POST",
     body: JSON.stringify({ status }),
+  });
+}
+
+export function correctOutlookMessage(id, patch) {
+  return request(`/api/outlook/messages/${encodeURIComponent(id)}/correction`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function convertOutlookMessageToTask(id) {
+  return request(`/api/outlook/messages/${encodeURIComponent(id)}/task`, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 
@@ -201,6 +221,10 @@ export function generateWeeklyAiSummary(payload) {
     body: JSON.stringify(payload),
     timeout: 35_000,
   });
+}
+
+export function generateDailyReportDraft(payload) {
+  return request("/api/daily-report/draft", { method: "POST", body: JSON.stringify(payload) });
 }
 
 let dailyHotLoader = null;

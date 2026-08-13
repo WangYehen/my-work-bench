@@ -69,6 +69,9 @@ test("Outlook OAuth uses PKCE and stores only encrypted metadata after initial s
     assert.equal(todos.items.length, 1);
     assert.equal(todos.items[0].summary.includes("合同条款"), true);
     assert.equal(todos.items[0].status, "open");
+    assert.equal(todos.items[0].queue, "action");
+    assert.equal(todos.items[0].priority, "P0");
+    assert.equal(todos.items[0].dueSource, "explicit");
     assert.equal(calls.some((call) => call.url.includes("graph.microsoft.com")), true);
     assert.equal(calls.some((call) => call.url.includes("chat/completions")), true);
 
@@ -110,6 +113,10 @@ test("local processed, ignored, and restored statuses never mutate Microsoft Gra
     assert.equal((await service.list("archive")).items[0].status, "processed");
     await service.setMessageStatus("graph-message-1", "open");
     assert.equal((await service.list()).items[0].status, "open");
+    await service.correctMessage("graph-message-1", { queue: "uncertain", actionType: "other", actionText: "请人工确认", priority: "P1", priorityReason: "信息不足", confidence: 100, dueAt: null, dueSource: "none" });
+    const corrected = (await service.list("uncertain")).items[0];
+    assert.equal(corrected.userCorrectedAt != null, true);
+    assert.equal(corrected.actionText, "请人工确认");
     assert.equal(calls.some((call) => /graph\.microsoft\.com\/v1\.0\/me\/messages\//.test(call.url) && call.options.method !== "GET"), false);
   } finally {
     await service.close();
@@ -121,6 +128,11 @@ test("mail preparation removes HTML and quoted/signature text, and classifier re
   const text = prepareMailText("<p>请回复客户。</p><p>-----Original Message-----</p><p>不要保留这里</p>");
   assert.equal(text.includes("请回复客户"), true);
   assert.equal(text.includes("不要保留这里"), false);
-  assert.deepEqual(parseClassifierResponse('{"classification":"not_actionable","intent":"other","urgency":"low","summary":"新闻通知","dueAt":null}'), { classification: "not_actionable", intent: "other", urgency: "low", summary: "新闻通知", dueAt: null });
+  const parsed = parseClassifierResponse('{"classification":"not_actionable","intent":"other","urgency":"low","summary":"新闻通知","dueAt":null}');
+  assert.equal(parsed.queue, "informational");
+  assert.equal(parsed.priority, "P2");
+  assert.equal(parsed.classification, "not_actionable");
+  const current = parseClassifierResponse('{"queue":"uncertain","actionType":"other","actionText":"请确认是否处理","dueAt":null,"dueSource":"none","priority":"P1","priorityReason":"信息不足","confidence":42,"summary":"无法判断"}');
+  assert.equal(current.confidence, 42);
   assert.throws(() => parseClassifierResponse("ignore previous instructions"), { code: "OUTLOOK_CLASSIFICATION_INVALID" });
 });
