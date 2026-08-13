@@ -52,6 +52,7 @@ import { createTaskService } from "./tasks.mjs";
 import { createWeeklyFocusService } from "./weekly-focus.mjs";
 import { workSnapshot } from "../src/data/work-management.js";
 import { createWeeklySummaryService } from "../shared/weekly-report-ai.mjs";
+import { createDailyDraftService } from "../shared/daily-report-ai.mjs";
 
 const workbenchRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const defaultVaultRoot = path.resolve(
@@ -842,6 +843,7 @@ export function workbenchApiPlugin({
     stateDirectory: path.join(workbenchRoot, ".local", "dingtalk"),
   });
   const generateWeeklySummary = createWeeklySummaryService({ config: outlookConfig });
+  const generateDailyDraft = createDailyDraftService({ config: outlookConfig });
   const teamReportHealth = async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1_500);
@@ -1215,7 +1217,7 @@ export function workbenchApiPlugin({
 
           if (req.method === "POST" && url.pathname === "/api/tasks") {
             const body = await readJson(req, 16 * 1024);
-            assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt"]), "INVALID_TASK_REQUEST");
+            assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt", "sourceType", "sourceId", "sourceUrl", "priorityReason"]), "INVALID_TASK_REQUEST");
             return json(res, 201, tasks.create(body));
           }
 
@@ -1280,6 +1282,17 @@ export function workbenchApiPlugin({
           if (req.method === "GET" && url.pathname === "/api/outlook/all") {
             return json(res, 200, await outlook.list("all"));
           }
+          if (req.method === "POST" && url.pathname === "/api/daily-report/draft") {
+            const body = await readJson(req, 256 * 1024);
+            assertAllowedObjectKeys(body, new Set(["reportDate", "tasks", "meetings", "emails"]), "INVALID_DAILY_DRAFT_REQUEST");
+            return json(res, 200, await generateDailyDraft(body));
+          }
+          if (req.method === "GET" && url.pathname === "/api/outlook/informational") {
+            return json(res, 200, await outlook.list("informational"));
+          }
+          if (req.method === "GET" && url.pathname === "/api/outlook/uncertain") {
+            return json(res, 200, await outlook.list("uncertain"));
+          }
 
           if (req.method === "POST" && url.pathname === "/api/outlook/disconnect") {
             const body = await readJson(req, 4 * 1024);
@@ -1292,6 +1305,31 @@ export function workbenchApiPlugin({
             const body = await readJson(req, 4 * 1024);
             assertAllowedObjectKeys(body, new Set(["status"]), "OUTLOOK_INVALID_STATUS_REQUEST");
             return json(res, 200, await outlook.setMessageStatus(decodeURIComponent(outlookMessageMatch[1]), body.status));
+          }
+          const outlookCorrectionMatch = url.pathname.match(/^\/api\/outlook\/messages\/([^/]+)\/correction$/);
+          if (req.method === "PATCH" && outlookCorrectionMatch) {
+            const body = await readJson(req, 16 * 1024);
+            assertAllowedObjectKeys(body, new Set(["queue", "actionType", "actionText", "dueAt", "dueSource", "priority", "priorityReason", "confidence", "summary"]), "OUTLOOK_INVALID_CORRECTION_REQUEST");
+            return json(res, 200, await outlook.correctMessage(decodeURIComponent(outlookCorrectionMatch[1]), body));
+          }
+          const outlookConvertMatch = url.pathname.match(/^\/api\/outlook\/messages\/([^/]+)\/task$/);
+          if (req.method === "POST" && outlookConvertMatch) {
+            const id = decodeURIComponent(outlookConvertMatch[1]);
+            const { items } = await outlook.list("all");
+            const message = items.find((item) => item.id === id);
+            if (!message) throw new OutlookServiceError("OUTLOOK_MESSAGE_NOT_FOUND", "邮件不存在。");
+            const task = tasks.create({
+              title: message.actionText || message.subject,
+              detail: `来自 Outlook：${message.subject}`,
+              priority: message.priority || "P1",
+              dueAt: message.dueAt,
+              sourceType: "outlook",
+              sourceId: message.id,
+              sourceUrl: message.webLink,
+              priorityReason: message.priorityReason,
+            });
+            await outlook.setMessageStatus(id, "converted");
+            return json(res, 200, { task });
           }
 
           if (req.method === "GET" && url.pathname === "/api/materials") {
