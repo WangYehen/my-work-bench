@@ -172,7 +172,7 @@ export function MaterialsPage({ onOpenDocument }) {
         eyebrow="RAW SOURCES"
         title={title}
         description={description}
-        aside={
+        meta={
           <div className="materials-total mono">
             <span>{isQueue ? data?.total ?? 0 : data?.total ?? data?.folder?.descendantFileCount ?? 0}</span>
             <small>{isQueue ? "TO READ" : "FILES"}</small>

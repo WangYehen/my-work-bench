@@ -393,7 +393,7 @@ function ArchivePage({ onOpenDocument, syncRevision }) {
   return (
     <div className="page page--social-insights">
       <PageHeader
-        aside={headerAside}
+        meta={headerAside}
         description="主动扫描近期 AI 风向，或围绕一个主题深挖讨论、评论回复、需求与分歧。"
         eyebrow="SOCIAL INSIGHTS · LOCAL EVIDENCE"
         title="社媒洞察"
@@ -735,18 +735,7 @@ function TrendDetailPage({ onOpenDocument, syncRevision, trendId }) {
       ) : null}
 
       <header className="social-trend-editorial-hero">
-        <div className="social-trend-editorial-hero__title">
-          <div className="social-trend-editorial-hero__eyebrow">
-            <span>AI 风向快照</span>
-            <b>更新于 {dateOnly(report.capturedAt)}</b>
-          </div>
-          <h1>{trendHeroTitle(report)}</h1>
-          <div className="social-trend-editorial-hero__meta">
-            <span>观察区间 {windowLabel}</span>
-            <span>{readerFacingTrendScope(report.scope)}</span>
-            <span>{readerFacingTrendDepth(report.depth)}</span>
-          </div>
-        </div>
+        <PageHeader eyebrow="INSIGHTS / TREND" title={trendHeroTitle(report)} description={trendHeroIntro(report)} meta={<><span>更新于 {dateOnly(report.capturedAt)}</span><span>观察区间 {windowLabel}</span><span>{readerFacingTrendScope(report.scope)}</span><span>{readerFacingTrendDepth(report.depth)}</span></>} />
         <aside className="social-trend-editorial-hero__summary">
           <span>本期导读</span>
           <div className="social-trend-editorial-hero__brief">
@@ -1086,15 +1075,7 @@ function DetailPage({ onOpenDocument, reportId, syncRevision }) {
       ) : null}
 
       <header className="social-brief-header">
-        <div className="social-brief-header__copy">
-          <div className="social-detail-hero__meta">
-            <span className={`social-status social-status--${report.status || "unknown"}`}><i aria-hidden="true" />{statusText(report.status)}</span>
-            <span><IconCalendar aria-hidden="true" />{dateOnly(report.capturedAt)}</span>
-            <span><IconLock aria-hidden="true" />{report.privacyLevel === "deidentified" ? "已脱敏" : "隐私未确认"}</span>
-          </div>
-          <h1>{report.title}</h1>
-          <p>{report.question || "未提供研究问题"}</p>
-        </div>
+        <PageHeader eyebrow="INSIGHTS / REPORT" title={report.title} description={report.question || "围绕当前主题梳理近期讨论、需求、分歧与证据。"} meta={<><span className={`social-status social-status--${report.status || "unknown"}`}><i aria-hidden="true" />{statusText(report.status)}</span><span><IconCalendar aria-hidden="true" />{dateOnly(report.capturedAt)}</span><span><IconLock aria-hidden="true" />{report.privacyLevel === "deidentified" ? "已脱敏" : "隐私未确认"}</span></>} />
         <div className="social-brief-header__platforms">
           {(report.platforms ?? []).map((platform, index) => <span className={index === 0 ? "is-primary" : ""} key={platform}>{platform}{index === 0 ? " · 主" : ""}</span>)}
         </div>

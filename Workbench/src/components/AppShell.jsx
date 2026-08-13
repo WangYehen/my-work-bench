@@ -1,23 +1,21 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
-  IconBulb,
+  IconAlertTriangle,
+  IconCalendarClock,
   IconCalendarEvent,
-  IconCalendarStats,
-  IconChecklist,
   IconClipboardCheck,
+  IconChevronDown,
   IconCommand,
   IconHome,
   IconLibrary,
   IconMail,
   IconMenu2,
-  IconRadar2,
   IconReportAnalytics,
   IconSearch,
-  IconSettings,
-  IconSocial,
-  IconStack2,
-  IconTopologyStar3,
+  IconShieldCheck,
+  IconTargetArrow,
+  IconUserFilled,
   IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
@@ -25,27 +23,30 @@ import {
 const localWorkbench = import.meta.env.VITE_WORKBENCH_HOSTED !== "true";
 
 const primaryNavigation = [
-  { to: "/", label: "总览", icon: IconHome, end: true },
-  { to: "/todos", label: "今日待办", icon: IconChecklist },
-  { to: "/weekly-focus", label: "本周关注", icon: IconBulb },
-  { to: "/meetings", label: "会议日程", icon: IconCalendarStats },
-  ...(localWorkbench ? [{ to: "/outlook", label: "工作邮箱", icon: IconMail }] : []),
-  { to: "/weekly-report", label: "周报总结", icon: IconReportAnalytics },
-  { to: "/daily-report", label: "日报提交", icon: IconClipboardCheck },
-  { to: "/team-reports", label: "团队日报", icon: IconUsersGroup },
-  { to: "/graph", label: "知识星图", icon: IconTopologyStar3 },
-  { to: "/wiki", label: "Wiki 层", icon: IconLibrary },
-  { to: "/materials", label: "素材层", icon: IconStack2 },
-  { to: "/daily-hot", label: "每日热点", icon: IconRadar2 },
-  ...(localWorkbench
-    ? [{ to: "/social-insights", label: "社媒洞察", icon: IconSocial }]
-    : []),
+  { to: "/", label: "今日工作", icon: IconHome, end: true, group: "work" },
+  { to: "/weekly-focus", label: "本周目标", icon: IconTargetArrow, group: "work" },
+  { to: "/daily-report", label: "日报", icon: IconCalendarEvent, group: "work" },
+  { to: "/weekly-report", label: "周报", icon: IconClipboardCheck, group: "work" },
+  { to: "/meetings", label: "会议日程", icon: IconCalendarClock, group: "more" },
+  ...(localWorkbench ? [{ to: "/outlook", label: "工作邮箱", icon: IconMail, group: "more" }] : []),
+  { to: "/overview", label: "知识库", icon: IconLibrary, group: "more" },
+  { to: "/system", label: "系统状态", icon: IconShieldCheck, group: "more" },
 ];
 
-export function AppShell({ children, onOpenSearch, sync, teamUser }) {
+const leaderNavigation = [
+  { to: "/team-reports", label: "团队日报", icon: IconUsersGroup, group: "leader" },
+  { to: "/team-risks", label: "风险与未提交", icon: IconAlertTriangle, group: "leader" },
+  { to: "/team-weekly-report", label: "团队周报", icon: IconReportAnalytics, group: "leader" },
+];
+
+const groupLabel = { leader: "团队", more: "更多" };
+
+export function AppShell({ children, onOpenSearch, teamUser }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const navigation = teamUser?.role === "member"
-    ? primaryNavigation.filter((item) => item.to !== "/team-reports")
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const canLead = teamUser?.role === "admin" || teamUser?.canViewTeamReports;
+  const navigation = canLead
+    ? [...primaryNavigation.filter((item) => item.group === "work"), ...leaderNavigation, ...primaryNavigation.filter((item) => item.group !== "work")]
     : primaryNavigation;
 
   useEffect(() => {
@@ -58,19 +59,22 @@ export function AppShell({ children, onOpenSearch, sync, teamUser }) {
   }, [mobileOpen]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarCollapsed ? " app-shell--sidebar-collapsed" : ""}`}>
       <header className="mobile-header">
         <button
           aria-label="打开导航"
           className="icon-button"
-          onClick={() => setMobileOpen(true)}
+          onClick={() => {
+            setSidebarCollapsed(false);
+            setMobileOpen(true);
+          }}
           type="button"
         >
           <IconMenu2 aria-hidden="true" />
         </button>
         <span className="mobile-header__brand">
           <img alt="" aria-hidden="true" src="/workbench-mark.svg" />
-          <span>个人 AI</span>
+          <span>个人AI工作台</span>
         </span>
         <button
           aria-label="搜索"
@@ -94,57 +98,74 @@ export function AppShell({ children, onOpenSearch, sync, teamUser }) {
       <aside className={`sidebar${mobileOpen ? " sidebar--open" : ""}`}>
         <div className="sidebar__top">
           <div className="sidebar__brand-row">
-            <NavLink className="sidebar__brand" onClick={() => setMobileOpen(false)} to="/">
-              <img alt="" aria-hidden="true" src="/workbench-mark.svg" />
-              <span>个人 AI</span>
-            </NavLink>
+            <div className="sidebar__brand-lockup">
+              <NavLink className="sidebar__brand" onClick={() => setMobileOpen(false)} to="/">
+                <img alt="" aria-hidden="true" src="/workbench-mark.svg" />
+                <strong>个人AI工作台</strong>
+              </NavLink>
+              <span className="sidebar__brand-tagline">PERSONAL AI WORKBENCH</span>
+            </div>
             <button
               aria-label="关闭导航"
               className="icon-button sidebar__close"
-              onClick={() => setMobileOpen(false)}
+              onClick={() => {
+                setMobileOpen(false);
+                setSidebarCollapsed(true);
+              }}
               type="button"
             >
               <IconX aria-hidden="true" />
             </button>
           </div>
-          <div className="sidebar__tag">PERSONAL AI WORKBENCH</div>
-
           <nav aria-label="主要导航" className="sidebar__nav">
-            {navigation.map((item) => {
+            {navigation.map((item, index) => {
               const Icon = item.icon;
               return (
+                <div className="sidebar__nav-entry" key={item.to}>
+                {item.group !== "work" && navigation[index - 1]?.group !== item.group ? <span className="sidebar__nav-section">{groupLabel[item.group]}</span> : null}
                 <NavLink
                   className={({ isActive }) =>
                     `sidebar__nav-item${isActive ? " sidebar__nav-item--active" : ""}`
                   }
                   end={item.end}
-                  key={item.to}
                   onClick={() => setMobileOpen(false)}
                   to={item.to}
                 >
-                  <Icon aria-hidden="true" className="sidebar__nav-icon" stroke={1.7} />
+                  <Icon aria-hidden="true" className="sidebar__nav-icon" stroke={1.65} />
                   <span>{item.label}</span>
                 </NavLink>
+                </div>
               );
             })}
           </nav>
         </div>
 
         <div className="sidebar__bottom">
-          <div className={`sidebar__sync sidebar__sync--${sync?.status || "connecting"}`}>
-            <span aria-hidden="true" />
-            <span>{sync?.status === "watching" ? "文件已实时同步" : sync?.status === "rebuilding" || sync?.status === "pending" ? "正在同步文件" : "正在连接文件同步"}</span>
-          </div>
           <NavLink
-            className="sidebar__settings"
+            className="sidebar__profile"
             onClick={() => setMobileOpen(false)}
             to="/system"
           >
-            <IconSettings aria-hidden="true" stroke={1.6} />
-            <span>系统状态</span>
+            <span className="sidebar__avatar" aria-hidden="true"><IconUserFilled /></span>
+            <span className="sidebar__profile-copy">
+              <strong>{teamUser?.displayName || teamUser?.username || "个人账户"}</strong>
+              <small>{teamUser ? `${teamUser.departmentName || "未同步部门"} · ${teamUser.role === "admin" ? "管理员" : "成员"}` : "本地工作台"}</small>
+            </span>
+            <IconChevronDown aria-hidden="true" className="sidebar__profile-chevron" stroke={1.6} />
           </NavLink>
         </div>
       </aside>
+
+      {sidebarCollapsed ? (
+        <button
+          aria-label="展开导航"
+          className="icon-button sidebar-reopen"
+          onClick={() => setSidebarCollapsed(false)}
+          type="button"
+        >
+          <IconMenu2 aria-hidden="true" />
+        </button>
+      ) : null}
 
       <main className="app-main">{children}</main>
 

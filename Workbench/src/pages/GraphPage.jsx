@@ -232,7 +232,7 @@ export function GraphPage({ onOpenDocument }) {
   return (
     <div className="graph-page-shell">
       <PageHeader
-        aside={
+        meta={
           <span className="collection-count mono">
             LIVE VAULT · {formatCompactDate(data.generatedAt, true)}
           </span>

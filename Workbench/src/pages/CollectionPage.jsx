@@ -100,7 +100,7 @@ export function CollectionPage({
         eyebrow={eyebrow}
         title={title}
         description={description}
-        aside={
+        meta={
           <div className="collection-count">
             {isLoading ? "…" : `${total} ITEMS`}
           </div>

@@ -166,7 +166,8 @@ export function DailyHotPage() {
       <PageHeader
         eyebrow="EXTERNAL SIGNALS · AI HOT"
         title="每日热点"
-        aside={sourceAside}
+        description="聚合近期 AI 热点与精选内容，帮助你快速判断今天值得关注的信号。"
+        meta={sourceAside}
       />
 
       <section className="daily-hot-summary" aria-label="热点概览">

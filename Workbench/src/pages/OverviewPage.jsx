@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import gsap from "gsap";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import { DecryptedText } from "../components/DecryptedText";
-import { DotEyes } from "../components/DotEyes";
 import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { MetricStat } from "../components/MetricStat";
+import { PageHeader } from "../components/PageHeader";
 import { loadDingTalkEvents, loadDingTalkStatus, loadGraph, loadOutlookStatus, loadOverview, loadTasks } from "../lib/api";
 import { workSnapshot } from "../data/work-management";
 import { formatCompactDate } from "../lib/format";
@@ -126,19 +125,8 @@ export function OverviewPage({ onOpenDocument }) {
 
   return (
     <div ref={rootRef}>
-      <section className="hero" data-hero>
-        <div>
-          <span className="eyebrow">
-            <DecryptedText
-              active={liveDataReady}
-              settleWithoutAnimation={overviewSettled && !liveDataReady}
-              text="PERSONAL AI WORKBENCH"
-            />
-            <span aria-hidden="true">·</span>
-            <span>{today}</span>
-          </span>
-          <h1 className="hero__title">工作台总览</h1>
-          <div className="hero__meta">
+      <section className="hero hero--unified" data-hero>
+        <PageHeader eyebrow="PERSONAL / AI WORKBENCH" title="工作台总览" description="汇总今天的任务、目标、会议、邮件与知识动态，快速进入下一步行动。" meta={<>
             <span className="badge">
               <span className="status-dot status-dot--ok" /> {demoMode ? "示例 Vault" : "本地 Vault"}
             </span>
@@ -153,9 +141,8 @@ export function OverviewPage({ onOpenDocument }) {
             ) : (
               <span className="badge badge--accent">索引实时</span>
             )}
-          </div>
-        </div>
-        <DotEyes awake={liveDataReady} />
+            <span>{today}</span>
+          </>} />
       </section>
 
       <div className="metric-strip">

@@ -86,7 +86,7 @@ function Shelf({ data, onOpenBook, onOpenDocument, progressByBook }) {
         eyebrow="READING LIBRARY"
         title="书架"
         description="Books 是独立阅读空间：从封面进入书籍，按章节阅读中文译本，也可随时切回英文原版。"
-        aside={
+        meta={
           <div className="books-total mono">
             <span>{data?.total ?? 0}</span>
             <small>BOOKS</small>
@@ -241,6 +241,8 @@ function BookDetail({ book, onBack, onOpenDocument, savedProgress }) {
         <IconArrowLeft size={17} /> 返回书架
       </button>
 
+      <PageHeader eyebrow="READING / CURRENT BOOK" title={book.title} description="中文忠实阅读版与英文原版逐章对应，可随时继续上次阅读。" meta={<><span>{book.author || "作者未记录"}</span><span><IconFileText size={15} />{book.chapterCount} 个章节</span><span><IconPhoto size={15} />{book.imageCount} 张原图</span></>} />
+
       <motion.section
         animate={{ opacity: 1, y: 0 }}
         className="book-detail-hero"
@@ -249,8 +251,6 @@ function BookDetail({ book, onBack, onOpenDocument, savedProgress }) {
       >
         <BookCover book={book} compact />
         <div className="book-detail-hero__content">
-          <span className="eyebrow">CURRENT BOOK</span>
-          <h1>{book.title}</h1>
           <p className="book-detail-hero__author">{book.author || "作者未记录"}</p>
           <p className="book-detail-hero__description">
             中文忠实阅读版与英文原版逐章对应，书中原图会在沉浸阅读器里按原位置展示。
