@@ -1,5 +1,7 @@
 # Vault integration data contracts
 
+> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏。Vault 数据契约当前**仅服务于社媒洞察与抖音数据等已整理数据的读取**（`10_raw/social-insights/**`、`30_self_media/douyin/current.json`）；下列"Page contracts"中面向知识库页面的契约仅作为代码能力说明，不代表对外产品功能。
+
 This document records the contract between the Workbench UI, the local Vault
 index, and the checked-in example Vault. It is intentionally descriptive: it
 does not create missing values and it does not turn unavailable metrics into
