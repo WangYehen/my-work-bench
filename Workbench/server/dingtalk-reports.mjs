@@ -3,6 +3,7 @@ const APP_TOKEN_KEY = "app:access-token";
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1_000;
 const DEFAULT_EXPIRES_IN_SECONDS = 7_200;
 const MAX_PAGES = 200;
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 // 将钉钉日志创建时间（毫秒）转换为上海时区的 YYYY-MM-DD 日期
 export function dingtalkReportDate(createTime) {
@@ -42,9 +43,30 @@ export function normalizeDingTalkReport(raw = {}) {
   };
 }
 
-export function createDingTalkReportService({ config, store, fetcher = globalThis.fetch, now = () => new Date() } = {}) {
+export function createDingTalkReportService({ config, store, fetcher = globalThis.fetch, now = () => new Date(), timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   let cached = null;
   let flight = null;
+
+  // 给钉钉 HTTP 请求加超时：网络异常/接口无响应时抛出明确错误，避免团队日报同步无限挂起
+  async function fetchWithTimeout(url, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetcher(url, {
+        ...options,
+        signal: controller.signal,
+        ...(config.dispatcher ? { dispatcher: config.dispatcher } : {}),
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        const timeout = Object.assign(new Error(`钉钉请求超时（${timeoutMs}ms）。`), { code: "DINGTALK_REPORT_TIMEOUT" });
+        throw timeout;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   // 判断缓存 token 是否仍可直接使用（过期前 5 分钟视为不可用）
   function tokenUsable(token) {
@@ -53,11 +75,10 @@ export function createDingTalkReportService({ config, store, fetcher = globalThi
 
   // 通过 client_credentials 换取企业 access token
   async function requestAppToken() {
-    const response = await fetcher(`${config.apiBaseUrl || "https://api.dingtalk.com"}/v1.0/oauth2/accessToken`, {
+    const response = await fetchWithTimeout(`${config.apiBaseUrl || "https://api.dingtalk.com"}/v1.0/oauth2/accessToken`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ appKey: config.clientId, appSecret: config.clientSecret, grantType: "client_credentials" }),
-      ...(config.dispatcher ? { dispatcher: config.dispatcher } : {}),
     });
     const value = await response.json().catch(() => ({}));
     if (!response.ok || !value.accessToken) {
@@ -95,11 +116,10 @@ export function createDingTalkReportService({ config, store, fetcher = globalThi
   // 调用日志列表接口单页，返回 result 对象
   async function fetchPage(token, payload) {
     const url = `${config.topapiBaseUrl || "https://oapi.dingtalk.com"}${config.reportListPath || "/topapi/report/list"}?access_token=${encodeURIComponent(token)}`;
-    const response = await fetcher(url, {
+    const response = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      ...(config.dispatcher ? { dispatcher: config.dispatcher } : {}),
     });
     const body = await response.json().catch(() => ({}));
     if (Number(body.errcode) !== 0) {

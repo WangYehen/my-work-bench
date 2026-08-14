@@ -206,13 +206,13 @@ export function createIdentityContext({ dbPath, now = () => new Date() }) {
       FROM org_member_departments md JOIN departments d ON d.id=md.department_id
       WHERE md.identity_id IN (${placeholders})
       GROUP BY d.id,d.name ORDER BY d.name`).all(...ids);
-    const reportRows = memberIds.length ? db.prepare(`SELECT r.id,r.owner_identity_id AS ownerIdentityId,r.report_date AS reportDate,r.summary,r.completed_snapshot_json AS completedItems,r.next_actions_snapshot_json AS nextActions,r.submitted_at AS submittedAt,i.display_name AS displayName,
+    const reportRows = memberIds.length ? db.prepare(`SELECT r.id,r.owner_identity_id AS ownerIdentityId,r.report_date AS reportDate,r.summary,r.completed_snapshot_json AS completedItems,r.next_actions_snapshot_json AS nextActions,r.raw_payload_ref AS rawPayload,r.submitted_at AS submittedAt,i.display_name AS displayName,
       (SELECT group_concat(d.name,' · ') FROM org_member_departments md JOIN departments d ON d.id=md.department_id WHERE md.identity_id=r.owner_identity_id) AS departmentNames
       FROM daily_reports r JOIN identities i ON i.id=r.owner_identity_id
       WHERE r.owner_identity_id IN (${memberIds.map(() => "?").join(",")}) AND r.report_date=? ORDER BY i.display_name`).all(...memberIds, reportDate) : [];
     const byOwner = new Map(reportRows.map((row) => [row.ownerIdentityId, row]));
     const statusMembers = members.map((item) => ({ ...item, status: byOwner.has(item.id) ? "submitted" : "missing", submittedAt: byOwner.get(item.id)?.submittedAt || null }));
-    return { reportDate, generatedAt: stamp(), metrics: { submitted: reportRows.length, expected: members.length, missing: statusMembers.filter((item) => item.status === "missing").length, late: 0 }, members: statusMembers, reports: reportRows.map((row) => ({ ...row, completedItems: safeJson(row.completedItems), nextActions: safeJson(row.nextActions) })), departments, summary: { blockers: [], decisions: [], nextActions: [] } };
+    return { reportDate, generatedAt: stamp(), metrics: { submitted: reportRows.length, expected: members.length, missing: statusMembers.filter((item) => item.status === "missing").length, late: 0 }, members: statusMembers, reports: reportRows.map((row) => ({ ...row, completedItems: safeJson(row.completedItems), nextActions: safeJson(row.nextActions), ...safeJson(row.rawPayload) })), departments, summary: { blockers: [], decisions: [], nextActions: [] } };
   }
   return { current, sync, applyOrganization, descendants, dashboard, clearUnownedWorkItems, saveReports, ownReports, ownReport, close: () => db.close(), identityId };
 }

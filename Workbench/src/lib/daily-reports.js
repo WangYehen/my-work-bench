@@ -1,5 +1,6 @@
 const bridge = () => globalThis.window?.workbench?.dailyReports || null;
 const AUTH_STORAGE_KEY = "workbench:team-auth:v1";
+const DEFAULT_LOCAL_TIMEOUT_MS = 60_000;
 function authStorage() { try { return globalThis.localStorage || null; } catch { return null; } }
 function readStoredToken() {
   const value = authStorage()?.getItem(AUTH_STORAGE_KEY);
@@ -17,11 +18,21 @@ function persistToken(token) { try { authStorage()?.setItem(AUTH_STORAGE_KEY, JS
 function clearStoredToken() { try { authStorage()?.removeItem(AUTH_STORAGE_KEY); } catch { /* storage unavailable */ } }
 let remoteToken = readStoredToken();
 const AUTH_EVENT = "workbench:team-auth-changed";
-async function localDingTalk(pathname, options = {}) {
-  const response = await fetch(pathname, { ...options, headers: { Accept: "application/json", "Content-Type": "application/json", ...(options.headers || {}) } });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result?.error?.message || "本地钉钉服务请求失败。");
-  return result;
+async function localDingTalk(pathname, options = {}, timeoutMs = DEFAULT_LOCAL_TIMEOUT_MS) {
+  // 兜底超时：服务器偶发挂起时返回明确错误，避免浏览器长时间无响应后报 "Failed to fetch"
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(pathname, { ...options, signal: controller.signal, headers: { Accept: "application/json", "Content-Type": "application/json", ...(options.headers || {}) } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.error?.message || "本地钉钉服务请求失败。");
+    return result;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("钉钉请求超时，请稍后重试。");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function publishAuthChange(user) {

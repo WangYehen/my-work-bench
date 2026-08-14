@@ -52,6 +52,7 @@ import { createTaskService } from "./tasks.mjs";
 import { createWeeklyFocusService } from "./weekly-focus.mjs";
 import { createIdentityContext } from "./identity-context.mjs";
 import { createDingTalkReportService, dingtalkReportDate } from "./dingtalk-reports.mjs";
+import { analyzeTeamSummary } from "./team-summary.mjs";
 import { workSnapshot } from "../src/data/work-management.js";
 import { createWeeklySummaryService } from "../shared/weekly-report-ai.mjs";
 import { createDailyDraftService } from "../shared/daily-report-ai.mjs";
@@ -222,6 +223,7 @@ function errorStatus(error) {
       : 400;
   }
   if (code?.startsWith("DINGTALK_")) {
+    if (code === "DINGTALK_REPORT_TIMEOUT") return 504;
     return ["DINGTALK_CALENDAR_REQUEST_FAILED", "DINGTALK_TOKEN_EXCHANGE_FAILED"].includes(code) ? 502 : 400;
   }
   if (code === "LOCAL_API_ORIGIN_DENIED") return 403;
@@ -827,6 +829,7 @@ export function workbenchApiPlugin({
   readerExplanationService = null,
   outlookConfig = {},
   dingtalkConfig = {},
+  dataDirectory = path.join(workbenchRoot, ".local"),
 } = {}) {
   let readerNoteApiMutationQueue = Promise.resolve();
   const readerNotes = createReaderNotesRepository({ vaultRoot });
@@ -837,14 +840,34 @@ export function workbenchApiPlugin({
   const vaultSync = createVaultSyncService({ vaultRoot });
   const outlook = createOutlookService({
     config: outlookConfig,
-    stateDirectory: path.join(workbenchRoot, ".local", "outlook"),
+    stateDirectory: path.join(dataDirectory, "outlook"),
   });
   const dingtalk = createDingTalkService({
     config: dingtalkConfig,
-    stateDirectory: path.join(workbenchRoot, ".local", "dingtalk"),
+    stateDirectory: path.join(dataDirectory, "dingtalk"),
   });
   const generateWeeklySummary = createWeeklySummaryService({ config: outlookConfig });
   const generateDailyDraft = createDailyDraftService({ config: outlookConfig });
+  const teamSummaryCache = new Map();
+  const TEAM_SUMMARY_CACHE_LIMIT = 50;
+  // 按日期缓存团队日报摘要（阻塞/待决策/行动），避免同日重复调用 LLM；同步成功后由 clearTeamSummaryCache 清除。
+  const cachedTeamSummary = async (reportDate, reports) => {
+    const key = String(reportDate || "");
+    if (!key) return { mode: "rule", blockers: [], decisions: [], nextActions: [] };
+    const hit = teamSummaryCache.get(key);
+    if (hit) return hit;
+    const summary = await analyzeTeamSummary(reports, { config: outlookConfig });
+    if (teamSummaryCache.size >= TEAM_SUMMARY_CACHE_LIMIT) {
+      const firstKey = teamSummaryCache.keys().next().value;
+      if (firstKey) teamSummaryCache.delete(firstKey);
+    }
+    teamSummaryCache.set(key, summary);
+    return summary;
+  };
+  const clearTeamSummaryCache = (reportDate) => {
+    const key = String(reportDate || "");
+    if (key) teamSummaryCache.delete(key);
+  };
   const teamReportHealth = async () => {
     // 本地优先运行时不再探测独立的团队服务；团队日报健康状态固定为"未配置"。
     return { configured: false, connected: false, status: "needs_configuration", missing: [], lastError: null };
@@ -917,17 +940,17 @@ export function workbenchApiPlugin({
     }
   };
   const tasks = createTaskService({
-    dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
+    dbPath: path.join(dataDirectory, "workbench.sqlite"),
   });
   const dingtalkReports = createDingTalkReportService({
     config: { clientId: dingtalkConfig.clientId, clientSecret: dingtalkConfig.clientSecret, apiBaseUrl: dingtalkConfig.apiBaseUrl, topapiBaseUrl: process.env.DINGTALK_TOPAPI_BASE_URL, reportListPath: process.env.DINGTALK_REPORT_LIST_PATH, templateName: process.env.DINGTALK_REPORT_TEMPLATE_NAME || "IT部门日报" },
   });
   const weeklyFocus = createWeeklyFocusService({
-    dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
+    dbPath: path.join(dataDirectory, "workbench.sqlite"),
     taskService: tasks,
     seedFocus: workSnapshot.focus,
   });
-const identities = createIdentityContext({ dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite") });
+const identities = createIdentityContext({ dbPath: path.join(dataDirectory, "workbench.sqlite") });
   identities.clearUnownedWorkItems();
   // 组织同步后台作业：以钉钉账号为单位合并，避免重复扫描；状态供 status/团队页轮询
   const orgSyncJobs = new Map();
@@ -1273,7 +1296,8 @@ if (req.method === "POST" && url.pathname === "/api/dingtalk/organization/sync")
               return json(res, 200, { reportDate, generatedAt: new Date().toISOString(), metrics: { submitted: 0, expected: 0, missing: 0, late: 0 }, members: [], reports: [], departments: [], summary: { blockers: [], decisions: [], nextActions: [] }, organizationSync: syncState });
             }
             const dashboard = identities.dashboard(context, { date: url.searchParams.get("date"), departmentId: url.searchParams.get("departmentId") || url.searchParams.get("department"), member: url.searchParams.get("member") });
-            return json(res, 200, { ...dashboard, organizationSync: syncState });
+            const summary = await cachedTeamSummary(dashboard.reportDate, dashboard.reports);
+            return json(res, 200, { ...dashboard, summary, organizationSync: syncState });
           }
           if (req.method === "GET" && url.pathname === "/api/local-team/reports") {
             const context = await currentIdentity();
@@ -1295,6 +1319,7 @@ if (req.method === "POST" && url.pathname === "/api/dingtalk/organization/sync")
             if (scope === "team-reports" && !current.canViewTeamReports) throw Object.assign(new Error("当前账号没有下属日报查看权限。"), { code: "TEAM_REPORT_FORBIDDEN" });
             const reports = (await Promise.all(userIds.map((userId) => dingtalkReports.fetchReportList({ from: reportDate, to: reportDate, userId })))).flat().map((report) => ({ ...report, reportDate: dingtalkReportDate(report.createTime) || reportDate }));
             const saved = identities.saveReports(reports);
+            clearTeamSummaryCache(reportDate);
             return json(res, 200, { ok: true, scope, date: reportDate, syncedAt: new Date().toISOString(), itemCount: saved });
           }
           if (req.method === "GET" && url.pathname === "/api/local-daily-reports") {

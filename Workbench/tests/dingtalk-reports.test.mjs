@@ -161,3 +161,17 @@ test("fetchReportList requests a fresh token when the persisted one expires", as
   await service.fetchReportList({ from: "2026-08-13", to: "2026-08-13" });
   assert.equal(calls.token, 1, "expired persisted token should trigger a fresh exchange");
 });
+
+test("fetchReportList times out when DingTalk does not respond instead of hanging", async () => {
+  // 模拟钉钉 API 无响应：返回一个只随 abort 结束的 Promise，验证超时保护
+  const hangingFetch = (_url, options) => new Promise((_resolve, reject) => {
+    options.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })));
+  });
+  const service = createDingTalkReportService({
+    config: { clientId: "cid", clientSecret: "cs", apiBaseUrl: "https://api.dingtalk.com", topapiBaseUrl: "https://oapi.dingtalk.com" },
+    fetcher: hangingFetch,
+    timeoutMs: 50,
+    now: () => new Date("2026-08-13T13:30:00.000Z"),
+  });
+  await assert.rejects(() => service.fetchReportList({ from: "2026-08-13", to: "2026-08-13" }), { code: "DINGTALK_REPORT_TIMEOUT" });
+});

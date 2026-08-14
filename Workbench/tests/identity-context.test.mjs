@@ -60,13 +60,17 @@ test("department filter uses department ids and dashboards show multi-department
   ctx.applyOrganization(orgProfile());
   const manager = ctx.current(loginProfile());
   ctx.saveReports([
-    { creatorId: "1002", creatorName: "Charles", reportDate: "2026-08-13", remark: "完成后端联调", completedItems: "任务 B", nextActions: "任务 C", createTime: "2026-08-13T10:00:00.000Z" },
-    { creatorId: "1003", creatorName: "Alice", reportDate: "2026-08-13", remark: "完成前端页面", completedItems: "任务 D" },
+    { creatorId: "1002", creatorName: "Charles", reportDate: "2026-08-13", remark: "完成后端联调", completedItems: "任务 B", nextActions: "任务 C", createTime: "2026-08-13T10:00:00.000Z", blockers: "测试环境接口不稳定", cooperationNeeds: "需要确认数据权限方案" },
+    { creatorId: "1003", creatorName: "Alice", reportDate: "2026-08-13", remark: "完成前端页面", completedItems: "任务 D", blockers: "测试环境接口不稳定", cooperationNeeds: "需要协调测试资源" },
   ]);
   const all = ctx.dashboard(manager, { date: "2026-08-13" });
   assert.equal(all.metrics.submitted, 2);
   assert.equal(all.metrics.expected, 3);
   assert.equal(all.metrics.missing, 1);
+  // dashboard 日报明细应展开 raw_payload_ref 中的阻塞/协作字段
+  const aliceReport = all.reports.find((report) => report.ownerIdentityId === "dingtalk:1003");
+  assert.equal(aliceReport.blockers, "测试环境接口不稳定");
+  assert.equal(aliceReport.cooperationNeeds, "需要协调测试资源");
   const backend = ctx.dashboard(manager, { date: "2026-08-13", departmentId: "dingtalk-dept:201" });
   assert.deepEqual(backend.members.map((member) => member.id), ["dingtalk:1002", "dingtalk:1004"]);
   assert.equal(backend.metrics.expected, 2);
