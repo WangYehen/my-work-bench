@@ -6,7 +6,7 @@
 
 ## 1. 一句话定位
 
-**本地优先、Vault 驱动、Agent 可调用的个人知识与工作管理台。** Markdown 文件是内容事实源，React 前端负责浏览与交互，Vite 自定义插件同时当开发服务器和本地 API 后端，SQLite / Electron / Team 服务承载各类状态与协作数据。
+**本地优先、Agent 可调用的个人工作管理平台。** 钉钉与 Outlook 数据同步到本地 SQLite（含团队日报、组织关系、审计，**不再使用独立团队服务与 MySQL**），React 前端负责交互，Vite 自定义插件同时当开发服务器和本地 API 后端。Markdown 知识库（Vault）以及社媒/抖音模块暂不开放，仅作演示数据保留。
 
 它不是传统"前后端分离"项目，而是 **Vite 插件 + React + Node 领域服务的一体化应用**。`npm run dev` 只起一个 Vite 进程，`/api/*` 请求被 `server/vite-plugin-workbench.mjs` 直接接管。
 
@@ -22,11 +22,11 @@ npm run dev
 ```
 
 - 访问 `http://127.0.0.1:5174`（端口写死在 `vite.config.mjs`，`WORKBENCH_PORT` 可改）。
-- 不配任何外部服务也能用：核心 Vault 浏览、阅读器、任务、周重点都能跑，页面会显示"未配置"状态。
+- 不配任何外部服务也能用：任务、周重点等本地工作管理都能跑，页面会显示"未配置"状态。
 
 ### 2.1 关于 .env
 
-`.env.example` 注释即文档。最小可跑只需要配置 Vault 路径（不配则用仓库旁 `个人知识库/`）：
+`.env.example` 注释即文档。本地工作管理不需要配置外部服务即可运行；Vault 路径仅用于演示数据（知识库、社媒/抖音模块不开放，通常无需配置）：
 
 ```dotenv
 # 接自己的真实 Vault 时设置；真实 Vault 必须放在 Git 仓库之外
@@ -104,7 +104,7 @@ Workbench/
 
 ### 5.2 Vault 热更新
 
-`useVaultSync.js` 用 `EventSource` 订阅 `/api/vault/events`；服务端检测到 Vault 变化后递增 revision。`App.jsx` 把 revision 拼进路由 key（`/wiki:${revision}`），触发集合页、图谱等页面重新拉索引。**改动索引相关代码时，注意 revision 失效机制。**
+`useVaultSync.js` 用 `EventSource` 订阅 `/api/vault/events`；服务端检测到 Vault 变化后递增 revision。`App.jsx` 把 revision 拼进路由 key（`/wiki:${revision}`），触发集合页、图谱等页面重新拉索引。**改动索引相关代码时，注意 revision 失效机制。**（知识库模块不开放，但索引能力保留。）
 
 ### 5.3 身份与权限模型（最重要的心智模型）
 
@@ -118,21 +118,21 @@ Workbench/
 
 > 前端侧：`App.jsx` 里 `teamUser` 为空（未登录/退出）时，除 `/system` 外全部渲染 `PrivacyLockedPage`，并清空搜索/文档抽屉等内存状态。做新页面时记得遵守这个隐私锁。
 
-## 6. 数据存储：三层职责边界
+## 6. 数据存储：本地统一存储
 
 | 存储 | 位置 | 内容 | 责任 |
 | --- | --- | --- | --- |
-| Vault（事实源） | `个人知识库/` 或 `PERSONAL_DASHBOARD_VAULT_ROOT` | Markdown/CSV/JSON，只读索引 | 内容归属，可被 Obsidian 直接读 |
-| SQLite（应用状态） | `Workbench/.local/workbench.sqlite`（WAL） | work_items、goals、daily_reports、identities、org_members、笔记等 | 交互状态与派生数据 |
+| SQLite（全部业务数据） | `Workbench/.local/workbench.sqlite`（WAL） | work_items、goals、daily_reports、identities、org_members、report_issues、report_feedback、audit_events | 所有数据（含团队日报、组织关系、审计）都在此，不再用独立服务/MySQL |
 | Electron 本地 | 用户数据目录 | 日报草稿、待同步队列 | 桌面离线场景 |
+| Vault（演示数据） | `个人知识库/` 或 `PERSONAL_DASHBOARD_VAULT_ROOT` | Markdown/CSV/JSON，只读索引 | 仅演示保留；知识库、社媒/抖音模块不开放 |
 
-**硬性边界**：同一事实只能有一个权威来源。"Vault 内容"和"SQLite 状态"不要互相复制造成不一致。改 schema 时在 `server/db/migrations/` 加新迁移文件（编号递增），`local-first.mjs` 会自动执行未应用的迁移，并对旧库做 `migrateLegacy` 数据搬移。
+**硬性边界**：同一事实只能有一个权威来源。"业务数据"统一在本地 SQLite，不要与演示数据互相复制造成不一致。改 schema 时在 `server/db/migrations/` 加新迁移文件（编号递增），`local-first.mjs` 会自动执行未应用的迁移，并对旧库做 `migrateLegacy` 数据搬移。
 
 ## 7. ★ 本地优先架构：别走回头路
 
 `AGENTS.md` 明确了几条新接手者最易踩的坑：
 
-- **当前页面数据必须走 `server/vite-plugin-workbench.mjs` 的本地接口**（`/api/...`）。**独立的 8787 团队服务已删除，不要重新引入**，也不要以演示数据作为认证失败/同步失败的回退。
+- **当前页面数据必须走 `server/vite-plugin-workbench.mjs` 的本地接口**（`/api/...`）。**独立的 8787 团队服务与 MySQL 已删除，不要重新引入**，所有团队数据（日报、组织、审计）存本地 SQLite；也不要以演示数据作为认证失败/同步失败的回退。
 - 钉钉日报与团队日报同步**必须真实调用 `/topapi/report/list` 并入库**，不能返回空成功响应。
 - "今日工作 → 同步日志"必须查询昨天的个人日报，把"明日工作计划"按当前身份**幂等写入任务**。
 - 服务只监听 loopback（`127.0.0.1`），除非已审查认证与网络暴露。
@@ -155,7 +155,7 @@ Workbench/
 | `/outlook` | OutlookPage | Microsoft Graph OAuth |
 | `/daily-report` | DailyReportPage | 本地日报 / 钉钉同步 |
 | `/team-reports` `/team-risks` `/team-weekly-report` | 团队三页 | 仅主管可见，走本地日报接口 |
-| `/social-insights*` `/douyin` | 社媒/抖音 | Vault 中的脱敏/synthetic 数据 |
+| `/social-insights*` `/douyin` | 社媒/抖音（不开放，仅代码保留） | Vault 中的脱敏/synthetic 数据 |
 | `/system` | SystemPage | `/api/runtime`、集成状态 |
 
 ## 9. 动手开发：三类常见任务的改法
@@ -231,10 +231,9 @@ npm run privacy:scan          # 发布前隐私扫描（扫真实数据/凭据/�
 | 命令 | 作用 |
 | --- | --- |
 | `npm run dev` | 启动本地 Web（127.0.0.1:5174） |
-| `npm run dev:team` | Vite + 独立团队服务 |
 | `npm run electron:dev` | Electron 桌面开发 |
 | `npm run build` / `npm run preview` | 构建 / 预览生产 |
 | `npm test` | 构建 + 全部测试 |
 | `npm run privacy:scan` | 隐私边界扫描 |
-| `npm run demo:generate` | 重新生成 synthetic Douyin demo 数据 |
+| `npm run demo:generate` | 重新生成 synthetic Douyin demo 数据（模块不开放，仅演示） |
 | `npm run test:<领域>` | 专项测试（materials / books / graph-motion / social-insights / daily-hot ...） |

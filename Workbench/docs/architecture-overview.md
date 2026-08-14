@@ -4,13 +4,13 @@
 > 分析时间：2026-08-13  
 > 结论来源：项目源码、`package.json`、`vite.config.mjs`、测试目录和现有文档。本文描述当前工作区中的实现，不代表未来规划。
 
-> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。产品定位为**本地优先的工作管理平台**，核心能力是对接钉钉与 Outlook 邮箱数据，并借助 LLM 进行数据分析；数据完全存放到本地，多用户按身份隔离。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏；社媒洞察与抖音数据读取仍保留（Vault 仅作为这两类已整理数据的只读来源）。
+> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。产品定位为**本地优先的工作管理平台**，核心能力是对接钉钉与 Outlook 邮箱数据，并借助 LLM 进行数据分析；**所有数据（含团队日报、组织关系、审计）全部存放到本地 SQLite**，不再使用独立团队服务与 MySQL，多用户按身份隔离。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块，以及社媒洞察、抖音数据等 Vault 内容展示模块的入口均已隐藏；每日热点（AI HOT 匿名 API）仍保留。
 
 ## 1. 架构摘要
 
 Personal AI Workbench 是一个“本地优先、Agent 可调用”的个人工作管理台。产品主线是把钉钉（日程/待办/日报/组织）与 Outlook（邮件）数据同步到本地，由 React 前端统一聚合为“今日工作 → 日报 → 团队复盘”的工作流，并借助 LLM 提供邮件分类、日报草稿、周报摘要等分析能力；需要持久化的本地交互状态放在 SQLite 或 Electron 本地存储中。
 
-> 代码仓库仍保留 Markdown Vault 的索引与展示能力（Vault 作为社媒洞察/抖音数据的只读来源），但知识库浏览/阅读/搜索相关模块在产品上不开放。
+> 代码仓库仍保留 Markdown Vault 的索引与展示能力，但知识库浏览/阅读/搜索以及社媒/抖音内容展示模块在产品上不开放；Vault 仅作为演示数据保留。
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     UI --> API[Vite Workbench API 插件\n/api/*]
     API --> IDX[Vault Index\n扫描 / 解析 / 搜索 / 图谱]
     IDX --> V[个人知识库\nMarkdown / CSV / JSON / 图片]
-    API --> DB[(SQLite\n阅读状态 / 笔记 / 任务等)]
+    API --> DB[(SQLite\n任务 / 周重点 / 日报 / 团队数据 / 审计等)]
     API --> EXT[可选外部服务\nOutlook / DingTalk / DeepSeek / AI HOT]
     API --> AG[Codex Runner\nAgent 工作流与解释任务]
     DESK[Electron 主进程] --> UI
@@ -68,17 +68,17 @@ Workbench/
 └─ public/、docs/       静态资源与项目文档
 ```
 
-前端路由集中在 `src/App.jsx`，导航入口在 `src/components/AppShell.jsx` 中配置。当前对用户开放的页面为工作管理（今日工作/待办/周重点/周报）、会议日程、日报与团队三页、Outlook、每日热点、社媒洞察与系统页。Overview、Wiki、Materials、Books、Graph、内容主题等知识库页面仅保留路由与代码，导航入口已隐藏，不对用户开放（见文件头部产品方向声明）。
+前端路由集中在 `src/App.jsx`，导航入口在 `src/components/AppShell.jsx` 中配置。当前对用户开放的页面为工作管理（今日工作/待办/周重点/周报）、会议日程、日报与团队三页、Outlook、每日热点与系统页。Overview、Wiki、Materials、Books、Graph、内容主题、社媒洞察等页面仅保留路由与代码，导航入口已隐藏，不对用户开放（见文件头部产品方向声明）。
 
 ## 4. 数据架构
 
 ### 4.1 Vault：已整理数据的只读来源
 
-在产品方向下，Vault 仅用于**社媒洞察**与**抖音数据**等已整理数据的只读展示，知识库浏览/阅读/搜索模块不开放。默认 Vault 是项目旁边的 `个人知识库`；也可以通过 `PERSONAL_DASHBOARD_VAULT_ROOT` 指向仓库外的数据目录。`server/vault-index.mjs` 仍负责递归扫描、排除目录、解析 Markdown frontmatter、识别书籍/材料/Wiki/社媒数据，并构造文档索引（能力保留，知识类模块不对外）。
+在产品方向下，Vault 已无对外功能用途（知识库、社媒洞察与抖音数据模块均不开放），仅作为演示数据目录保留。默认 Vault 是项目旁边的 `个人知识库`；也可以通过 `PERSONAL_DASHBOARD_VAULT_ROOT` 指向仓库外的数据目录。`server/vault-index.mjs` 仍负责递归扫描、排除目录、解析 Markdown frontmatter、识别书籍/材料/Wiki/社媒数据，并构造文档索引（能力保留，不对外展示）。
 
 Vault 的设计重点是“文件可读、来源可追溯”：
 
-- 社媒报告和账户数据以目录及文件契约组织。
+- 知识、社媒报告和账户数据以目录及文件契约组织。
 - `searchIndex()` 为搜索和集合页提供统一入口（知识类页面不开放）。
 - 文档通过稳定 ID/相对路径在前端、阅读器和图谱之间传递。
 - 图片读取先经过允许根目录和路径校验，避免任意文件读取。
@@ -100,7 +100,7 @@ Vault 的设计重点是“文件可读、来源可追溯”：
 - DingTalk：OAuth、事件/日历与待办同步，以及团队日报认证。
 - AI HOT：通过 `shared/ai-hot.mjs` 读取公开热点数据。
 - Codex Runner：启动/取消/确认 Agent 工作流，支持 SSE 事件订阅。
-- Douyin / Social Insights：主要读取 Vault 中已经整理好的脱敏或 synthetic 数据，不在 Workbench 内直接抓取平台数据。
+- Douyin / Social Insights：读取 Vault 中已经整理好的脱敏或 synthetic 数据（模块不开放，代码能力保留）。
 
 ## 5. 请求与数据流
 
@@ -143,7 +143,7 @@ API 路由目前集中在 `server/vite-plugin-workbench.mjs`，主要可分为�
 | 图谱与内容 | `/api/graph`、`/api/materials`、`/api/books` | `vault-index.mjs`、`materials.mjs`、`books.mjs` |
 | 本地工作管理 | `/api/tasks`、`/api/weekly-focus` | `tasks.mjs`、`weekly-focus.mjs` |
 | 外部集成 | `/api/outlook/*`、`/api/dingtalk/*`、`/api/integrations/*` | `outlook.mjs`、`dingtalk.mjs` |
-| 社媒与日报 | `/api/douyin/works`、`/api/social-insights`、`/api/daily-report` | 对应领域服务和 Vault 契约 |
+| 社媒与日报 | `/api/douyin/works`、`/api/social-insights`（社媒/抖音模块不开放）、`/api/local-daily-reports/*`、`/api/local-team/*` | 对应领域服务；日报与团队数据走本地 SQLite |
 | 运行时与文件 | `/api/runtime`、`/api/refresh`、`/api/open` | 插件内运行时适配 |
 | Agent 工作流 | `/api/reader-explanations`、`/api/workflows/*` | `codex-runner.mjs`、领域 runner |
 
@@ -156,9 +156,9 @@ API 路由目前集中在 `server/vite-plugin-workbench.mjs`，主要可分为�
 - 前端读取文件时使用文档索引 ID，服务端再校验相对路径、允许根目录和文件大小。
 - Markdown 渲染引入 `rehype-sanitize`，降低原始 HTML 风险。
 - Electron 使用 context isolation、sandbox 和最小化 preload API。
-- OAuth Token 在本地/团队服务中不直接暴露给前端；团队 schema 对 Token 使用 ciphertext 字段。
+- OAuth Token 在本地状态中加密保存，不直接暴露给前端。
 - 仓库自带 `privacy:scan`，用于发布前扫描真实个人数据、凭据、导出文件和本地路径。
-- Demo Vault 与 Douyin/社媒示例应保持 synthetic；真实账号数据和真实知识库不应提交到公开仓库。
+- Demo Vault 与示例数据应保持 synthetic；真实账号数据和真实知识内容不应提交到公开仓库。
 
 需要特别注意：`Workbench/.env`、`.local/workbench.sqlite*`、外部 Vault 和已生成的 `dist/` 可能包含本机状态或派生数据。发布前应以隐私扫描结果和 `.gitignore` 为准，不应仅凭文件名判断安全。
 
@@ -179,24 +179,24 @@ npm run privacy:scan
   → 扫描仓库及旁边 Demo Vault 的敏感内容边界
 ```
 
-测试按领域拆分，当前可以看到图谱、阅读器、材料/书籍、社媒、日报、钉钉、Outlook、工作管理、Vault 同步、Wiki ingest、站点 Worker 和隐私边界等测试。典型变更应至少运行对应领域测试，发布前运行 `npm test`、`npm run build` 和 `npm run privacy:scan`。
+测试按领域拆分，当前可以看到图谱、阅读器、材料/书籍、社媒、日报、钉钉、Outlook、工作管理、Vault 同步、Wiki ingest、站点 Worker 和隐私边界等测试（其中图谱/阅读器/社媒等领域的测试对应已隐藏模块的代码能力）。典型变更应至少运行对应领域测试，发布前运行 `npm test`、`npm run build` 和 `npm run privacy:scan`。
 
 ## 9. 架构优点与维护关注点
 
 ### 优点
 
-1. Vault 与 UI 解耦：Markdown 仍可被 Obsidian 或其他工具直接使用。
+1. Vault 与 UI 解耦：Markdown 仍可被 Obsidian 或其他工具直接使用（Vault 当前仅作演示保留）。
 2. 本地优先降低隐私暴露面，外部集成是可选的。
 3. 前端 API 客户端有 fallback 和统一错误处理，演示环境不依赖所有外部服务。
-4. 阅读器、图谱、社媒和工作管理已经按领域拆出服务/测试，便于逐步演进。
+4. 工作管理、日报、身份权限等已按领域拆出服务/测试，便于逐步演进。
 5. Web、Electron 和 hosted 形态共享前端，产品能力可复用。
 
 ### 维护关注点
 
 1. `vite-plugin-workbench.mjs` 集中了大量路由和依赖，已经是主要的复杂度中心；继续扩展时宜将路由处理拆到领域 router 或 service adapter。
-2. **知识库模块不开放是产品红线**：Overview、图谱、Wiki、素材、书架、主题、阅读器与搜索均不对用户开放，调整隐藏范围必须同步所有相关文档（见头部产品方向声明）。
-3. Vault 的目录、frontmatter 和 CSV/JSON 字段是隐式 API（当前仅服务于社媒/抖音读取）；修改契约时应同步更新索引、页面 fallback、文档和测试。
-4. “本地 SQLite 状态”与“外部同步工作数据”必须保持职责边界，避免把同一事实写入两处后产生不一致。
+2. **知识库与社媒/抖音模块不开放是产品红线**：Overview、图谱、Wiki、素材、书架、主题、阅读器与搜索，以及社媒洞察、抖音数据均不对用户开放，调整隐藏范围必须同步所有相关文档（见头部产品方向声明）。
+3. Vault 的目录、frontmatter 和 CSV/JSON 字段是隐式 API（当前模块已隐藏、无对外用途）；若日后恢复开放，修改契约时应同步更新索引、页面 fallback、文档和测试。
+4. **所有数据统一存本地 SQLite**：团队日报、组织关系、审计与个人状态同库存储，不再有独立团队服务/MySQL；保持"内容/演示数据"与"本地应用状态"的职责边界，避免把同一事实写入两处后产生不一致。
 5. Hosted/Worker 形态不能自然获得本地 Node API；部署文档应明确哪些页面是静态可用、哪些页面需要本地运行时。
 6. 外部 OAuth、AI 模型调用和平台导出都属于高变依赖，应该保留配置缺失、超时、限流和数据不完整时的显式状态，而不是用 0 或虚构数据补齐。
 
@@ -215,4 +215,4 @@ npm run privacy:scan
 
 ## 11. 一句话结论
 
-这是一个以钉钉/Outlook 工作数据为同步来源、以 Vite 自定义 API 插件为应用后端、以 React 为交互层、以 SQLite/Electron 承载本地状态与协作场景的模块化个人工作管理平台；知识库（Vault）模块暂不开放，其核心工程风险在于集中式 API 插件、数据契约与多运行时边界的长期一致性。
+这是一个以钉钉/Outlook 工作数据为同步来源、以 Vite 自定义 API 插件为应用后端、以 React 为交互层、以本地 SQLite/Electron 承载全部状态与协作数据的模块化个人工作管理平台；知识库与社媒/抖音等 Vault 内容模块暂不开放，其核心工程风险在于集中式 API 插件、数据契约与多运行时边界的长期一致性。

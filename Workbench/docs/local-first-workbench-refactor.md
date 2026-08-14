@@ -1,21 +1,21 @@
 # 本地优先工作台：架构与数据模型重构方案
 
-> 状态：设计基线，尚未实施。  
+> 状态：**已按本方案落地实施**。独立 `team-server` 进程与 MySQL 已移除，团队日报、组织关系、审计等数据全部收敛到本地 SQLite（`server/` 本地服务与 `/api/local-team/*`、`/api/local-daily-reports/*` 接口）。下方保留设计过程供追溯；当前实现以代码为准。
 > 目标：在**不调整现有 React 页面和路由**的前提下，将工作管理、日报、团队洞察与外部同步逐步收敛到一个本地 SQLite 数据库。
 
-> **产品方向声明**：本项目为**本地优先的个人工作管理平台**（对接钉钉与 Outlook 数据、LLM 数据分析、数据完全本地、多用户隔离）。**Markdown 知识库（Vault）模块暂不开发、不对用户开放**；Vault 仅作为社媒洞察/抖音等已整理数据的只读来源。本方案聚焦工作管理数据收敛，符合该方向。
+> **产品方向声明**：本项目为**本地优先的个人工作管理平台**（对接钉钉与 Outlook 数据、LLM 数据分析、数据完全本地、多用户隔离）。**Markdown 知识库（Vault）模块暂不开发、不对用户开放**，社媒洞察、抖音数据等 Vault 内容展示模块同样不对用户开放。本方案聚焦工作管理数据收敛，符合该方向。
 
 ## 1. 决策摘要
 
-当前运行时同时存在本地 `.local/workbench.sqlite`、Electron 用户目录中的日报 SQLite、加密 JSON 状态文件，以及 MySQL `team-server`。这会造成离线数据分裂和同步语义不一致。
+现状（已按目标架构收敛）：原运行时存在本地 `.local/workbench.sqlite`、Electron 用户目录中的日报 SQLite、加密 JSON 状态文件，以及 MySQL `team-server`，会造成离线数据分裂和同步语义不一致；现已统一为单一本地 SQLite 工作库。
 
 目标架构采用以下原则：
 
-- 一个用户配置目录内仅维护一个业务 SQLite 数据库；Vault 仍是知识内容事实源，不搬入 SQLite。
+- 一个用户配置目录内仅维护一个业务 SQLite 数据库；Vault 仅作演示数据保留，不搬入 SQLite。
 - Electron Main Process（开发模式由 Node 本地服务适配）是唯一的外部同步与定时任务宿主。
 - Outlook、钉钉凭据使用操作系统安全存储；SQLite 只保存凭据引用和到期元数据。
 - 当前页面、路由、前端接口名称保持不变；先在服务层做兼容适配，再逐步替换内部表与实现。
-- `team-server`/MySQL 不再作为桌面版运行依赖；保留为未来企业部署时可选的平台代理。
+- `team-server`/MySQL 已不再作为运行依赖（已移除）；不重新引入。
 
 ```mermaid
 flowchart LR
@@ -349,6 +349,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_created
 
 ## 5. 旧表迁移映射
 
+> 本表为设计期迁移映射，已按此完成数据收敛；MySQL 表已不再存在（数据迁移至本地 SQLite）。
+
 | 现有存储 | 迁移目标 | 规则 |
 | --- | --- | --- |
 | `tasks` | `work_items` | `open → planned`，`completed → done`；保留来源字段与完成时间。 |
@@ -356,9 +358,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_created
 | `weekly_focus` | `goals` | `progress → manual_progress`，`week_start/week_end → period_start/period_end`。 |
 | `weekly_focus_tasks` | `goal_work_items` | 按关联关系无损迁移。 |
 | Electron `daily_report_drafts` | `daily_reports` | `sync_status` 原样迁移；同一天重复记录按 `updated_at` 较新者保留。 |
-| MySQL `users` | `identities` + `org_members` | 钉钉 ID 是外部稳定 ID，经理关系迁为 `manager_identity_id`。 |
-| MySQL `daily_reports` | `daily_reports` + `report_issues` | 文本中的 blocker 等先保留原文；后续由用户或解析器增量拆分为 issue。 |
-| MySQL `audit_logs` | `audit_events` | 动作、目标和发生时间直接映射。 |
+| MySQL `users`（已移除） | `identities` + `org_members` | 钉钉 ID 是外部稳定 ID，经理关系迁为 `manager_identity_id`。 |
+| MySQL `daily_reports`（已移除） | `daily_reports` + `report_issues` | 文本中的 blocker 等先保留原文；后续由用户或解析器增量拆分为 issue。 |
+| MySQL `audit_logs`（已移除） | `audit_events` | 动作、目标和发生时间直接映射。 |
 
 迁移流程：备份数据库 → 事务内执行新增表 → 批量迁移 → 对账记录数/唯一键冲突 → 写入 `schema_migrations`。在完成一轮真实数据验证前，不删除旧表或旧 JSON 文件。
 
@@ -391,11 +393,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_created
 
 ## 8. 实施阶段
 
+> 各阶段已按序完成（当前实现以代码为准）；独立 Team Server、MySQL 与 `TEAM_REPORT_API_URL` 均已移除。
+
 1. **M0：数据库底座**：创建连接管理器、迁移器、备份机制和上述核心表；不改页面。
 2. **M1：任务兼容适配**：`/api/tasks` 改由 `work_items` 支撑，兼容原响应字段并补齐测试。
 3. **M2：日报统一**：将 Electron 日报草稿迁入统一库，保留现有 IPC 名称。
 4. **M3：本地同步调度**：实现 18:00–10:00 小时作业、检查点、日志和设置页状态。
 5. **M4：团队洞察数据化**：接入组织关系、`report_issues`、`report_feedback`；现有团队页面的 DTO 不变。
-6. **M5：移除强依赖**：Electron 不再需要 `TEAM_REPORT_API_URL`、MySQL 或独立 Team Server 才可运行。
+6. **M5：移除强依赖**：Electron 不再需要 `TEAM_REPORT_API_URL`、MySQL 或独立 Team Server 才可运行（已完成）。
 
 每个阶段完成后至少运行对应领域测试、`npm test` 和 `npm run privacy:scan`。

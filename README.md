@@ -1,21 +1,21 @@
 # Personal AI Workbench
 
-一个本地优先的个人工作管理平台。产品定位是对接**钉钉**、**邮箱（Outlook）**数据，并借助 **LLM 进行数据分析**；工作数据**完全存放到本地**，多用户按身份隔离。
+一个本地优先的个人工作管理平台。产品定位是对接**钉钉**、**邮箱（Outlook）**数据，并借助 **LLM 进行数据分析**；**所有数据（含团队日报、组织关系、审计）全部存放到本地 SQLite**，不再使用独立团队服务与 MySQL，多用户按身份隔离。
 
-> **产品方向说明**：本项目中的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview 总览、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器和全文搜索等知识库相关模块的入口已隐藏，不作为对外功能；社媒洞察与抖音数据读取仍保留。
+> **产品方向说明**：本项目中的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview 总览、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器、全文搜索，以及社媒洞察、抖音数据等 Vault 内容展示模块的入口均已隐藏，不作为对外功能；每日热点（AI HOT 匿名 API）仍保留。
 
 项目默认只在本机运行，并提供 synthetic demo 数据。真实邮箱、日历、账号数据和密钥都应保存在仓库之外。
 
 ## 功能概览
 
 - 工作管理（产品主线）：今日工作（Today）、待办、周重点、周报和 AI 周报摘要。
-- 日报与团队协作：本地日报草稿、Electron 本地存储、团队日报服务、管理员汇总和审计日志。
+- 日报与团队协作：个人日报、团队日报、风险与团队周报，管理员汇总和审计日志（数据全部存本地 SQLite）。
 - Outlook：Microsoft Graph OAuth 连接、邮件同步、AI 待办分类、归档和断开连接。
-- 钉钉：OAuth 连接、日程与待办同步，并为团队日报提供组织身份认证。
-- 内容展示：每日热点（AI HOT 公开匿名 API）、Social Insights 与 Douyin（读取 Vault 中已整理的脱敏或 synthetic 数据，不在 Workbench 内抓取账号）。
+- 钉钉：OAuth 连接、日程与待办同步，并为日报与团队权限提供组织身份认证。
+- 内容展示：每日热点（AI HOT 公开匿名 API）。
 - 多种运行形态：本地 Web、Electron 桌面端，以及面向静态托管的构建产物。
 
-> **暂不开放**：知识库相关模块（Overview、Wiki、Materials、Books、文档阅读器、全文搜索、知识图谱与内容主题）——当前产品方向不开发、不对用户开放，导航入口已隐藏。
+> **暂不开放**：知识库相关模块（Overview、Wiki、Materials、Books、文档阅读器、全文搜索、知识图谱与内容主题），以及社媒洞察、抖音数据——当前产品方向不开发、不对用户开放，导航入口已隐藏。
 
 ## 快速开始
 
@@ -33,7 +33,7 @@ npm run dev
 ## 常用命令
 
 ```bash
-npm run dev              # 启动 Web Workbench 与 Team Server
+npm run dev              # 启动 Web 工作台
 npm run build            # 构建客户端及托管产物
 npm run preview          # 预览生产构建
 npm test                 # 构建并运行完整测试集
@@ -43,11 +43,11 @@ npm run electron:dev     # 启动 Electron 桌面端开发模式
 npm run electron:build   # 构建桌面安装包
 ```
 
-## 接入自己的 Vault（仅用于社媒/抖音数据读取）
+## 接入自己的 Vault
 
-> 产品方向下，知识库浏览不开放，因此**不需要**接入完整 Vault。仓库旁边的 `个人知识库/` 是演示 Vault，仅用于社媒洞察与抖音数据等已整理数据的读取。
+> 产品方向下，知识库、社媒洞察与抖音数据均不对用户开放，因此**不需要**接入 Vault。仓库旁的 `个人知识库/` 仅作为演示数据目录保留。
 
-如确需替换数据来源，在 `Workbench/.env` 中设置：
+如后续确需替换演示数据来源，在 `Workbench/.env` 中设置：
 
 ```dotenv
 PERSONAL_DASHBOARD_VAULT_ROOT=D:/path/to/your-vault
@@ -62,7 +62,7 @@ PERSONAL_DASHBOARD_VAULT_ROOT=D:/path/to/your-vault
 - Outlook 需要 Microsoft Entra 应用、`Mail.Read` / `offline_access` 权限和本地 OAuth 回调；详见 [`Workbench/docs/outlook-one-click-setup.md`](Workbench/docs/outlook-one-click-setup.md)。
 - 钉钉需要应用凭证、OAuth 回调和本地 Token 加密密钥，可同步日程与待办。
 - Outlook 邮件分类需要 `DEEPSEEK_API_KEY`。邮件正文会在用户明确同意后发送给 DeepSeek，应用不在本地保存原始正文。
-未配置这些服务时，核心 Vault 浏览和本地工作管理功能仍可使用。
+未配置这些服务时，核心工作管理功能仍可使用。
 
 ## 项目结构
 
@@ -87,13 +87,13 @@ person_dashboard/
 
 - 默认 loopback-only，不要在未配置认证时暴露到局域网或公网。
 - 不要提交 `Workbench/.env`、`Workbench/.local/`、真实 Vault、导出文件、Cookie、Token、截图或本地路径。
-- OAuth Token 在本地状态或团队服务中加密保存；Electron 启用 context isolation、sandbox，并通过最小化 preload API 通信。
+- OAuth Token 在本地状态中加密保存；Electron 启用 context isolation、sandbox，并通过最小化 preload API 通信。
 - Markdown 渲染使用 sanitize；服务端会校验 Vault 根目录、相对路径和允许读取的文件范围。
 - 发布前必须运行 `npm test`、`npm run build` 和 `npm run privacy:scan`。
 
 ## 维护建议
 
-修改数据契约时，请同步更新索引逻辑、API、页面 fallback、文档和对应测试。保持 Vault 内容、SQLite 应用状态和团队 MySQL 数据的职责边界，避免同一事实在多个存储中产生不一致。
+修改数据契约时，请同步更新索引逻辑、API、页面 fallback、文档和对应测试。所有数据（含团队日报、组织关系、审计）统一存本地 SQLite，保持"内容/演示数据"与"本地应用状态"的职责边界，避免同一事实在多个存储中产生不一致。
 
 ## 许可证
 

@@ -6,7 +6,9 @@
 > 范围对象：Personal AI Workbench（person_dashboard/Workbench）
 > 关联文档：[`architecture-overview.md`](architecture-overview.md)、[`vault-data-contracts.md`](vault-data-contracts.md)
 
-> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。产品定位为**本地优先的工作管理平台**，核心能力是对接钉钉与 Outlook 邮箱数据，并借助 LLM 进行数据分析；数据完全存放到本地，多用户按身份隔离。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏，不在本 PRD 范围内。本 PRD 聚焦"工作管理闭环 + 日报与团队协作"，与该方向一致。
+> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。产品定位为**本地优先的工作管理平台**，核心能力是对接钉钉与 Outlook 邮箱数据，并借助 LLM 进行数据分析；数据完全存放到本地，多用户按身份隔离。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块，以及社媒洞察、抖音数据等 Vault 内容展示模块的入口已隐藏，不在本 PRD 范围内。本 PRD 聚焦"工作管理闭环 + 日报与团队协作"，与该方向一致。
+
+> **架构现状更新（2026-08-14）**：本项目已**不再使用独立 Team Server 与 MySQL**，团队日报、组织关系、审计等数据全部收敛到本地 SQLite（`Workbench/.local/workbench.sqlite`），通过 `server/` 本地服务与 `/api/local-team/*`、`/api/local-daily-reports/*` 接口提供。本文中出现的"Team Server / MySQL / `8787` / 团队服务"等表述均按此本地化理解，需求内容本身不变。
 
 ---
 
@@ -17,7 +19,7 @@
 Personal AI Workbench 是一个本地优先的个人工作管理平台，已具备今日工作、任务、周重点、会议、日报、团队日报、Outlook、钉钉、社媒洞察等模块（知识库/阅读/图谱模块当前不开放）。功能覆盖面广，但存在三个突出问题：
 
 1. **缺少产品主线**：十几项功能呈"功能陈列"状态，用户不知道每天应该从哪里开始、按什么路径做事，"不知道从哪入手"是当前最大痛点。
-2. **工作数据割裂**：任务在本地 SQLite、邮件在 Outlook、日程在钉钉、日报在 Team Server/Electron 本地，聚合和闭环依赖页面各自拼装，缺乏统一的工作流叙事。
+2. **工作数据割裂**：任务在本地 SQLite、邮件在 Outlook、日程在钉钉、日报在本地 SQLite/Electron 本地，聚合和闭环依赖页面各自拼装，缺乏统一的工作流叙事。
 3. **团队协作侧薄弱**：日报从"个人自动生成"到"团队管理视图"链路存在，但缺少提醒、催办、表扬反馈循环和可量化的团队健康度指标。
 
 ### 1.2 目标（本 PRD 范围）
@@ -31,7 +33,7 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 
 - 不开发/开放知识库、阅读器、图谱模块（产品方向：暂不开发、入口已隐藏）。
 - 不做移动端原生应用（保留响应式适配）。
-- 不抓取平台数据以外的新数据源（Douyin/Social 维持"读 Vault 已整理数据"策略）。
+- 不开发/开放社媒洞察、抖音数据等 Vault 内容展示模块（产品方向：不开放，入口已隐藏）。
 - 本 PRD 的里程碑拆解服务于"先做什么"的决策，不承诺一次全部落地。
 
 ---
@@ -56,22 +58,19 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 ### 2.2 数据流转现状（四大存储）
 
 ```text
-【内容事实源】个人知识库 Vault (Markdown/CSV/JSON)
+【内容事实源】个人知识库 Vault (Markdown/CSV/JSON)  ← 仅演示/代码保留；知识库、社媒、抖音模块不开放
         │  scan/index (server/vault-index.mjs)
         ▼
-【本地应用状态】SQLite (.local/workbench.sqlite)
-    ├─ tasks 任务        ├─ weekly_focus 周重点
-    ├─ reader_notes      ├─ reader_explanations
-    └─ material_reading_queue
+【本地数据库】SQLite (.local/workbench.sqlite)
+    ├─ work_items 任务      ├─ goals 周重点
+    ├─ daily_reports 日报   ├─ identities / org_members 身份与汇报关系
+    └─ report_issues / report_feedback / audit_events（团队数据，不再使用独立服务/MySQL）
         │
         ▼  /api/* (vite-plugin-workbench.mjs, Vite 内置 API)
-【React 前端】页面各自拉取聚合 → Today/周报/日报
+【React 前端】页面各自拉取聚合 → Today/周报/日报/团队视图
         ▲
-        │  HTTPS (Bearer Token) / Electron IPC
-【团队数据】Team Server (MySQL) :8787
-    ├─ users(钉钉身份/汇报关系)  ├─ daily_reports(按人按日唯一)
-    ├─ dingtalk_tokens(加密)     └─ audit_logs(审计)
-【桌面离线】Electron 本地日报草稿 → 登录后同步到 Team Server
+        │  /api/*（本地优先） / Electron IPC
+【桌面离线】Electron 本地日报草稿 → 登录后同步到本地接口
 ```
 
 ### 2.3 关键现状结论（问题清单）
@@ -138,7 +137,7 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 | --- | --- | --- | --- |
 | B-1 | 日报送达状态：提交后展示"已送达直管 X"；直管已读后展示"已读"徽标 | P0 | daily_reports 表需加 read_at / 状态字段 |
 | B-2 | 未提交提醒：日报页按提交截止时间（如 18:00）显示逾期提示；次日打开 Dashboard 首屏横幅提醒"昨日未提交" | P0 | DailyReportPage + Electron 本地草稿 |
-| B-3 | 主管日报视图升级：按汇报链组织（我是直管→我的下属），提供单日速览模式（只看阻塞/风险/行动） | P0 | team-server dashboard |
+| B-3 | 主管日报视图升级：按汇报链组织（我是直管→我的下属），提供单日速览模式（只看阻塞/风险/行动） | P0 | 本地日报接口 dashboard |
 | B-4 | 一键催办：主管对未提交成员发起应用内催办，成员日报页出现催办通知横幅 | P1 | 需新增 dialog 消息表 |
 | B-5 | 决策回流：主管"标记已决策"的事件写回，提交人日报页可见"该阻塞已被处理" | P1 | TeamReportsAdminPage 已标记决策 |
 | B-6 | 提交率看板：团队页增加提交率趋势（近 7 天）、部门对比 | P1 | teamDashboard 已有 summary |
@@ -204,7 +203,7 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 
 **用户故事**：作为成员，我想知道日报是否送达并被主管看到，这样我对提交这件事有确定感。
 
-- Team Server：`daily_reports` 增加 `read_at DATETIME NULL`；
+- 本地服务（SQLite）：`daily_reports` 增加 `read_at DATETIME NULL`；
   - `PUT /api/team/daily-reports/me/:date` 写入时不改 read_at；
   - 主管读取该日报的接口（`GET /api/team/reports` 或新增明细接口）时，若 `read_at IS NULL` 且查看者为该用户直管，则更新 read_at 并记审计。
 - 前端：
@@ -285,10 +284,10 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| `daily_reports` 表结构变更涉及 MySQL，真实部署环境可能无权限 | B-1/B-5 延期 | 采用 ADD COLUMN 兼容迁移（参考现有 migrateUsersTable 模式） |
+| `daily_reports` 表结构变更涉及本地 SQLite，需迁移兼容 | B-1/B-5 延期 | 采用兼容迁移（在 `server/db/migrations/` 新增迁移，参考现有迁移模式） |
 | 主管与下属关系数据（manager_user_id）可能不完整 | B-3 视图不全 | 迁移脚本补齐 + 界面提示"汇报关系缺失"而非静默错误 |
-| Electron 本地草稿与 Team Server 双通道状态可能不一致 | B-2 提醒误报 | 提醒以 Team Server 为准，Electron 仅保留草稿语义 |
-| 团队功能依赖钉钉 OAuth 与 MySQL，demo 环境无法完整演示 | 联调受阻 | 保留现有合成演示数据 fallback，P0 前端先按契约开发 |
+| Electron 本地草稿与本地 SQLite 同步状态可能不一致 | B-2 提醒误报 | 提醒以本地 SQLite 同步状态为准，Electron 仅保留草稿语义 |
+| 团队功能依赖钉钉 OAuth 与本地同步，demo 环境无法完整演示 | 联调受阻 | 保留现有合成演示数据 fallback，P0 前端先按契约开发 |
 | `vite-plugin-workbench.mjs` 已是复杂度中心 | 迭代回归风险 | 新增时尽量复用领域服务文件，不在插件中堆逻辑 |
 
 ---
@@ -296,6 +295,6 @@ Personal AI Workbench 是一个本地优先的个人工作管理平台，已具�
 ## 11. 附录：本次变更涉及的现有契约/文件速查
 
 - 前端：`src/pages/TodayWorkPage.jsx`、`src/pages/WorkManagementPage.jsx`、`src/pages/DailyReportPage.jsx`、`src/pages/TeamReportsAdminPage.jsx`、`src/lib/work-loop.js`、`src/lib/daily-reports.js`、`src/lib/api.js`。
-- 服务端：`server/tasks.mjs`、`server/weekly-focus.mjs`、`server/vite-plugin-workbench.mjs`、`team-server/server.mjs`、`team-server/schema.sql`。
+- 服务端：`server/tasks.mjs`、`server/weekly-focus.mjs`、`server/vite-plugin-workbench.mjs`、`server/dingtalk-reports.mjs`、`server/identity-context.mjs`。
 - 契约：`shared/` 相关数据结构、`src/data/fallback.js`、`Workbench/docs/vault-data-contracts.md`。
 - 测试：`tests/` 下 tasks、weekly-focus、daily-report、team 相关用例。

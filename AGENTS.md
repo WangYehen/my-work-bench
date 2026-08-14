@@ -2,11 +2,11 @@
 
 ## 产品方向
 
-本项目定位为**本地优先的个人工作管理平台**：对接钉钉与 Outlook 邮箱数据，借助 LLM 进行数据分析；数据完全存放到本地，多用户按身份隔离。**Markdown 知识库（Vault）模块暂不开发、不对用户开放**——Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏，不作为对外功能；社媒洞察与抖音数据读取仍保留（Vault 仅作为这两类已整理数据的只读来源）。任何知识库模块的开放/隐藏调整都必须同步更新本仓库全部相关文档。
+本项目定位为**本地优先的个人工作管理平台**：对接钉钉与 Outlook 邮箱数据，借助 LLM 进行数据分析；**所有数据（含团队日报、组织关系、审计）全部存放到本地 SQLite**，不再使用独立团队服务与 MySQL，多用户按身份隔离。**Markdown 知识库（Vault）模块暂不开发、不对用户开放**——Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索，以及社媒洞察、抖音数据等 Vault 内容展示模块的入口均已隐藏，不作为对外功能；每日热点（AI HOT 匿名 API）仍保留。任何知识库/社媒/抖音模块的开放/隐藏调整都必须同步更新本仓库全部相关文档。
 
 ## 项目结构与模块组织
 
-`Workbench/` 包含基于 Vite、React 和 Electron 的应用。前端页面与组件位于 `Workbench/src/`；API 和 Vault 索引逻辑位于 `Workbench/server/`（钉钉日报同步等团队数据逻辑也在其中）；共享数据契约位于 `Workbench/shared/`；桌面端代码位于 `Workbench/electron/`。测试统一放在 `Workbench/tests/`，静态资源和技术文档分别放在 `Workbench/public/` 与 `Workbench/docs/`。`个人知识库/` 是合成演示 Vault；修改其内容前，先阅读该目录下的 `AGENTS.md`。
+`Workbench/` 包含基于 Vite、React 和 Electron 的应用。前端页面与组件位于 `Workbench/src/`；API 和 Vault 索引逻辑位于 `Workbench/server/`（钉钉日报同步、团队日报与组织关系等数据逻辑也全部在其中，数据存本地 SQLite，不再依赖独立团队服务或 MySQL）；共享数据契约位于 `Workbench/shared/`；桌面端代码位于 `Workbench/electron/`。测试统一放在 `Workbench/tests/`，静态资源和技术文档分别放在 `Workbench/public/` 与 `Workbench/docs/`。`个人知识库/` 是合成演示 Vault；修改其内容前，先阅读该目录下的 `AGENTS.md`。
 
 ## 构建、测试与开发命令
 
@@ -41,7 +41,7 @@ Git 历史采用简短、祈使语气的提交标题，例如 `Refresh README fo
 
 ## 本地优先钉钉与团队日报约定
 
-- 当前页面数据必须走 `Workbench/server/vite-plugin-workbench.mjs` 的本地接口；独立的 `8787` 团队服务已删除，不要重新引入，也不要以演示数据作为认证失败或同步失败的回退。
+- 当前页面数据必须走 `Workbench/server/vite-plugin-workbench.mjs` 的本地接口；独立的 `8787` 团队服务与 MySQL 已移除，不要重新引入，也不要以演示数据作为认证失败或同步失败的回退。团队日报、组织关系与审计数据全部存本地 SQLite。
 - 本地业务身份固定为 `dingtalk:<企业 userid>`。`unionId/openId` 仅用于钉钉日程和待办 v1 路径，不能用作 `owner_identity_id`，也不能与企业 `userid` 混用。
 - 所有个人数据（`work_items`、`goals`、`daily_reports` 及其查询）必须带当前身份的 `owner_identity_id` 条件；无所有者的历史数据不展示、不自动认领。账号切换、退出与未登录时必须清空前端内存状态并保持隐私锁定。
 - 登录只完成当前账号的轻量身份识别；完整部门树和组织成员关系通过独立组织同步补全，禁止把全量组织扫描放进 OAuth 回调，以免登录超时。旧的 `unionId` 账号档案需要迁移到企业 `userid` 档案后再计算团队权限。

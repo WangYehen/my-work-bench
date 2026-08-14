@@ -2,10 +2,11 @@
 
 > **Product direction note**: The Markdown knowledge base (Vault) modules are
 > **not in scope and not exposed to users**. Overview, graph, wiki, materials,
-> books, topics, the document reader, and full-text search are hidden;
-> daily hot, social insights, and Douyin analytics remain available. The work
-> management mainline (Today / tasks / reports / DingTalk / Outlook) is the
-> product focus.
+> books, topics, the document reader, full-text search, and the Vault-based
+> social insights and Douyin analytics are all hidden; daily hot (AI HOT)
+> remains available. The work management mainline (Today / tasks / reports /
+> DingTalk / Outlook) is the product focus, and all data lives in local
+> SQLite (no separate team service or MySQL).
 
 ## What is reusable
 
@@ -32,8 +33,8 @@ Demo records are authored from scratch. They use clearly fictional names, ids, d
 | Daily report & team reports | Included | Team collaboration mainline |
 | Outlook integration | Included | Mail workflow + AI classification |
 | Daily Hot | Included with editable neutral defaults | Uses an anonymous public source |
-| Social insights | Included, read-only | Reports remain local and user-owned |
-| Douyin analytics | Included with schema and synthetic demo | Users must supply their own authorized export |
+| Social insights | Hidden | Vault content display, out of scope for now |
+| Douyin analytics | Hidden | Vault content display, out of scope for now |
 | Overview / Wiki / Graph | Hidden | Knowledge base is out of scope for now |
 | Raw / reader / books / materials | Hidden | Knowledge base is out of scope for now |
 | Topics and content | Hidden | Knowledge base is out of scope for now |
@@ -44,11 +45,11 @@ Demo records are authored from scratch. They use clearly fictional names, ids, d
 Hidden here means more than removing navigation. The public indexer skips
 `Brainstorm/`, `90_runs/`, and `30_self_media/public-account/`; the related
 Brainstorm and public-account Dashboard API routes return
-`FEATURE_NOT_INCLUDED`. For the knowledge base modules hidden by product
-direction (Overview / Wiki / Graph / Raw / reader / books / materials /
-Topics), navigation entries are removed and the pages are not exposed to
-users; the underlying indexer and contracts remain only as reusable
-capability for the social-insights and Douyin data sources.
+`FEATURE_NOT_INCLUDED`. For the modules hidden by product direction
+(Overview / Wiki / Graph / Raw / reader / books / materials / Topics, and the
+Vault-based social-insights and Douyin analytics), navigation entries are
+removed and the pages are not exposed to users; the underlying indexer and
+contracts remain only as reusable demo capability.
 
 ## Release checklist
 

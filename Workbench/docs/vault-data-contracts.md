@@ -1,6 +1,6 @@
 # Vault integration data contracts
 
-> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏。Vault 数据契约当前**仅服务于社媒洞察与抖音数据等已整理数据的读取**（`10_raw/social-insights/**`、`30_self_media/douyin/current.json`）；下列"Page contracts"中面向知识库页面的契约仅作为代码能力说明，不代表对外产品功能。
+> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块，以及社媒洞察、抖音数据等 Vault 内容展示模块的入口均已隐藏。Vault 数据契约当前**已无对外功能用途**，仅作为代码能力说明保留；下列"Page contracts"不代表对外产品功能。
 
 This document records the contract between the Workbench UI, the local Vault
 index, and the checked-in example Vault. It is intentionally descriptive: it
@@ -35,8 +35,8 @@ path, so the source path remains the stable join key.
 | `/graph` | `/api/graph` | `nodes[]`, `edges[]`, `stats` | formal `wiki` pages, referenced `10_raw` evidence nodes, resolved Wiki links, and typed source edges; unresolved sources are not fabricated into nodes |
 | Search palette | `/api/search` | `query`, `total`, `items[]` | indexed title, excerpt, path, section, tags, and links |
 | Document reader | `/api/documents/:id` | document metadata plus readable body/reader fields | ID/path lookup into the same indexed document; source Markdown remains unchanged |
-| Social insights pages | `/api/social-insights*` | report/trend-specific arrays and provenance | only `10_raw/social-insights/**` documents matching their explicit report types |
-| Douyin pages | `/api/douyin*` | stable `current.json` contract | `30_self_media/douyin/current.json`, only when it passes `schemaVersion`, quality, availability, and works-array gates |
+| Social insights pages | `/api/social-insights*` (module not exposed) | report/trend-specific arrays and provenance | only `10_raw/social-insights/**` documents matching their explicit report types |
+| Douyin pages | `/api/douyin*` (module not exposed) | stable `current.json` contract | `30_self_media/douyin/current.json`, only when it passes `schemaVersion`, quality, availability, and works-array gates |
 | Daily hot | AI HOT loader | explicit unavailable/live contract | external anonymous source; not derived from the Vault |
 | `/todos`, `/weekly-focus`, reports | task/report APIs | task/focus/report contracts | local SQLite/team server; no Vault field mapping |
 | `/meetings`, `/outlook` | DingTalk/Outlook APIs | integration-specific status/items | external integrations; no Vault field mapping |

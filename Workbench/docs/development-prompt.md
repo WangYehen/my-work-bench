@@ -12,12 +12,12 @@
 
 ### 项目关键事实（数据流转）
 
-> **产品方向**：Markdown 知识库（Vault）模块暂不开发、不对用户开放。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索均不开放；Vault 仅作为社媒洞察/抖音等已整理数据的只读来源。工作管理（Today/任务/周重点/周报）、日报与团队协作、Outlook、钉钉、每日热点、社媒/抖音为当前产品范围。
+> **产品方向**：Markdown 知识库（Vault）模块暂不开发、不对用户开放。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索，以及社媒洞察、抖音数据等 Vault 内容展示模块均不开放；每日热点（AI HOT）仍保留。**所有数据（含团队日报、组织关系、审计）全部存放到本地 SQLite**，不再使用独立团队服务与 MySQL。产品范围为工作管理（Today/任务/周重点/周报）、日报与团队协作、Outlook、钉钉、每日热点。
 
 - 前端：React 19 + Vite + React Router，页面在 `Workbench/src/pages/`，导航入口在 `src/components/AppShell.jsx`，API 客户端统一走 `src/lib/api.js`（含 fallback 机制，`src/data/fallback.js` 提供演示兜底）。
-- 后端：API 由 `server/vite-plugin-workbench.mjs` 拦截 `/api/*` 提供；领域服务在 `server/`（如 `tasks.mjs`、`weekly-focus.mjs`、`dingtalk-reports.mjs`）。
-- 存储：SQLite（`Workbench/.local/workbench.sqlite`，本地任务、周重点、日报等应用状态） / Team Server（`team-server/`，MySQL，日报、用户、审计） / Electron 本地草稿（桌面离线） / Vault（仅社媒/抖音已整理数据读取，知识库模块不开放）。
-- 团队 API：`team-server/server.mjs` 提供 `/api/team/*`（钉钉 OAuth 登录、日报 PUT/GET、dashboard、weekly-summary、members、审计），Bearer Token 会话。
+- 后端：API 由 `server/vite-plugin-workbench.mjs` 拦截 `/api/*` 提供；领域服务在 `server/`（如 `tasks.mjs`、`weekly-focus.mjs`、`dingtalk-reports.mjs`、`identity-context.mjs`）。
+- 存储：SQLite（`Workbench/.local/workbench.sqlite`，任务、周重点、日报、团队日报、组织关系、审计等全部数据） / Electron 本地草稿（桌面离线） / Vault（仅演示数据，知识库/社媒/抖音模块不开放）。
+- 团队 API：全部走本地服务，`server/vite-plugin-workbench.mjs` 提供 `/api/local-team/*`、`/api/local-daily-reports/*`（钉钉日报同步、团队 dashboard、日报与审计），不再有独立 team-server 进程或 MySQL。
 - 外部集成：Outlook（OAuth + DeepSeek 邮件分类）、钉钉（日程/待办/团队登录）、AI HOT、Codex（Agent 工作流；阅读解释能力随知识库模块不开放而停用）。
 
 ### 本次开发范围
