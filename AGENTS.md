@@ -34,3 +34,13 @@ Git 历史采用简短、祈使语气的提交标题，例如 `Refresh README fo
 ## 安全与配置提示
 
 禁止提交真实 Vault 内容、凭据、Token、导出文件、截图或本地路径。将 `Workbench/.env.example` 复制为 `.env` 保存本地配置；个人覆盖项应放在已忽略的文件中，例如 `Workbench/config/attention.local.json`。除非已经明确审查认证和网络暴露风险，否则服务必须仅监听本机回环地址。
+
+## 本地优先钉钉与团队日报约定
+
+- 当前页面数据必须走 `Workbench/server/vite-plugin-workbench.mjs` 的本地接口；不要重新接回已退役的 `8787` 团队服务，也不要以演示数据作为认证失败或同步失败的回退。
+- 本地业务身份固定为 `dingtalk:<企业 userid>`。`unionId/openId` 仅用于钉钉日程和待办 v1 路径，不能用作 `owner_identity_id`，也不能与企业 `userid` 混用。
+- 所有个人数据（`work_items`、`goals`、`daily_reports` 及其查询）必须带当前身份的 `owner_identity_id` 条件；无所有者的历史数据不展示、不自动认领。账号切换、退出与未登录时必须清空前端内存状态并保持隐私锁定。
+- 登录只完成当前账号的轻量身份识别；完整部门树和组织成员关系通过独立组织同步补全，禁止把全量组织扫描放进 OAuth 回调，以免登录超时。旧的 `unionId` 账号档案需要迁移到企业 `userid` 档案后再计算团队权限。
+- 团队可见范围仅由本地 `org_members.manager_identity_id` 递归下级关系推导。主管的个人页面仍只能读取自己；只有团队日报、风险和团队周报可以读取下级数据。客户端不得传递任意用户范围绕过服务端授权。
+- 钉钉日程 `/v1.0/calendar/users/:userId/...` 和待办 v1 API 必须传 OAuth `unionId/openId`；钉钉日报 `/topapi/report/list` 的个人筛选字段 `userid` 必须传企业 `userid`。
+- “今日工作 → 同步日志”必须查询昨天的个人日报，将“明日工作计划”按当前身份幂等写入任务；日报与团队日报同步必须真实调用 `/topapi/report/list` 并入库，不能返回空成功响应。

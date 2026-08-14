@@ -44,6 +44,7 @@ export function mailAsAction(message) {
     sourceId: message.id,
     source: "Outlook",
     sourceType: "outlook",
+    actionKind: "outlook-message",
     title: message.actionText || message.subject,
     detail: message.subject,
     dueAt: message.dueAt,
@@ -57,6 +58,7 @@ export function mailAsAction(message) {
 export function taskAsAction(task) {
   return {
     ...task,
+    actionKind: "task",
     source: task.sourceType === "outlook" ? "Outlook" : task.sourceType === "dingtalk" ? "钉钉" : "手动",
     priorityReason: task.priorityReason || task.detail || (task.priority === "P0" ? "高优先级任务" : "按计划推进"),
   };

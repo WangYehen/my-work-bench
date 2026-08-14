@@ -50,6 +50,8 @@ import { createOutlookService, OutlookServiceError } from "./outlook.mjs";
 import { createDingTalkService, DingTalkServiceError } from "./dingtalk.mjs";
 import { createTaskService } from "./tasks.mjs";
 import { createWeeklyFocusService } from "./weekly-focus.mjs";
+import { createIdentityContext } from "./identity-context.mjs";
+import { createDingTalkReportService, dingtalkReportDate } from "../team-server/dingtalk-reports.mjs";
 import { workSnapshot } from "../src/data/work-management.js";
 import { createWeeklySummaryService } from "../shared/weekly-report-ai.mjs";
 import { createDailyDraftService } from "../shared/daily-report-ai.mjs";
@@ -825,7 +827,6 @@ export function workbenchApiPlugin({
   readerExplanationService = null,
   outlookConfig = {},
   dingtalkConfig = {},
-  teamReportApiUrl = "http://127.0.0.1:8787",
 } = {}) {
   let readerNoteApiMutationQueue = Promise.resolve();
   const readerNotes = createReaderNotesRepository({ vaultRoot });
@@ -845,6 +846,10 @@ export function workbenchApiPlugin({
   const generateWeeklySummary = createWeeklySummaryService({ config: outlookConfig });
   const generateDailyDraft = createDailyDraftService({ config: outlookConfig });
   const teamReportHealth = async () => {
+    // The desktop runtime is local-first. Enterprise team-server health is
+    // deliberately not probed from this process.
+    return { configured: false, connected: false, status: "needs_configuration", missing: [], lastError: null };
+    /* c8 ignore start -- retained only as an enterprise deployment reference
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1_500);
     try {
@@ -859,7 +864,7 @@ export function workbenchApiPlugin({
       return { configured: false, connected: false, status: "needs_configuration", missing: ["团队日报服务"], lastError: "团队日报服务未启动。" };
     } finally {
       clearTimeout(timer);
-    }
+    } */
   };
   const integrationStatus = async () => {
     const [outlookStatus, dingtalkStatus, teamStatus] = await Promise.all([
@@ -930,13 +935,60 @@ export function workbenchApiPlugin({
   };
   const tasks = createTaskService({
     dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
-    seedTasks: workSnapshot.tasks,
+  });
+  const dingtalkReports = createDingTalkReportService({
+    config: { clientId: dingtalkConfig.clientId, clientSecret: dingtalkConfig.clientSecret, apiBaseUrl: dingtalkConfig.apiBaseUrl, topapiBaseUrl: process.env.DINGTALK_TOPAPI_BASE_URL, reportListPath: process.env.DINGTALK_REPORT_LIST_PATH, templateName: process.env.DINGTALK_REPORT_TEMPLATE_NAME || "IT部门日报" },
   });
   const weeklyFocus = createWeeklyFocusService({
     dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite"),
     taskService: tasks,
     seedFocus: workSnapshot.focus,
   });
+const identities = createIdentityContext({ dbPath: path.join(workbenchRoot, ".local", "workbench.sqlite") });
+  identities.clearUnownedWorkItems();
+  // 组织同步后台作业：以钉钉账号为单位合并，避免重复扫描；状态供 status/团队页轮询
+  const orgSyncJobs = new Map();
+  function orgSyncStatusFor(accountId) {
+    const job = orgSyncJobs.get(String(accountId || ""));
+    if (!job) return { status: "idle", startedAt: null, finishedAt: null, departmentCount: 0, memberCount: 0, errorCode: null, errorMessage: null };
+    return { status: job.status, startedAt: job.startedAt, finishedAt: job.finishedAt, departmentCount: job.departmentCount, memberCount: job.memberCount, errorCode: job.errorCode, errorMessage: job.errorMessage || null };
+  }
+  function ensureOrgSync(accountId) {
+    const key = String(accountId || "");
+    if (orgSyncJobs.get(key)?.status === "syncing") return orgSyncJobs.get(key);
+    const job = { status: "syncing", startedAt: new Date().toISOString(), finishedAt: null, departmentCount: 0, memberCount: 0, errorCode: null, errorMessage: null };
+    orgSyncJobs.set(key, job);
+    (async () => {
+      try {
+        const orgProfile = await dingtalk.organizationProfile(key);
+        if (String(orgProfile?.dingtalkUserId || orgProfile?.id || "") !== key) throw Object.assign(new Error("钉钉账号已切换，已取消旧账号的组织同步。"), { code: "DINGTALK_ORG_SYNC_CANCELLED" });
+        if (orgProfile?.organizationSynced === true) {
+          const stats = identities.applyOrganization(orgProfile);
+          job.departmentCount = stats.departmentCount;
+          job.memberCount = stats.memberCount;
+          job.status = "succeeded";
+        } else {
+          // 权限不足或同步失败：保留最近一次成功组织图，不扩大访问范围
+          job.status = "failed";
+          job.errorCode = orgProfile?.organizationError ? "DINGTALK_ORG_SYNC_FAILED" : "DINGTALK_ORG_SCOPE_UNAVAILABLE";
+          job.errorMessage = orgProfile?.organizationError || null;
+        }
+      } catch (failure) {
+        job.status = "failed";
+        job.errorCode = failure?.code || "DINGTALK_ORG_SYNC_FAILED";
+        job.errorMessage = failure?.message || null;
+      } finally {
+        job.finishedAt = new Date().toISOString();
+      }
+    })();
+    return job;
+  }
+  async function currentIdentity() {
+    const status = await dingtalk.status();
+    if (!status.connected || !status.profile?.id) return null;
+    const context = identities.current(status.profile);
+    return { ...context, profile: { ...status.profile, role: context.role, canViewTeamReports: context.canViewTeamReports, subordinateCount: context.subordinateCount } };
+  }
   const currentIndex = () => vaultSync.currentIndex();
   const refreshIndex = (options = {}) => vaultSync.refresh({
     reason: "manual",
@@ -1124,6 +1176,22 @@ export function workbenchApiPlugin({
               message: "该模块未包含在公开版中。",
             });
           }
+          const requiresDingTalkIdentity = [
+            "/api/overview",
+            "/api/tasks",
+            "/api/task-completions",
+            "/api/weekly-focus",
+            "/api/weekly-summary",
+            "/api/daily-report/draft",
+            "/api/dingtalk/events",
+            "/api/dingtalk/sync",
+          ].includes(url.pathname)
+            || url.pathname.startsWith("/api/outlook/")
+            || url.pathname.startsWith("/api/local-daily-reports")
+            || url.pathname.startsWith("/api/local-team/");
+          if (requiresDingTalkIdentity && !(await dingtalk.status()).connected) {
+            return json(res, 401, { error: { code: "PRIVACY_LOCKED", message: "请先登录钉钉账号后查看个人数据。" } });
+          }
           if (req.method === "GET" && url.pathname === "/api/vault/events") {
             res.writeHead(200, {
               "Cache-Control": "no-cache, no-transform",
@@ -1155,7 +1223,26 @@ export function workbenchApiPlugin({
             return json(res, 200, await outlook.status());
           }
           if (req.method === "GET" && url.pathname === "/api/dingtalk/status") {
-            return json(res, 200, await dingtalk.status());
+            const status = await dingtalk.status(); const context = await currentIdentity();
+            if (context) {
+              // 已登录但组织从未同步（如服务重启）时自动补一次后台同步
+              if (status.profile?.id && !orgSyncJobs.has(String(status.profile.id))) ensureOrgSync(status.profile.id);
+              return json(res, 200, { ...status, accountId: context.id, profile: context.profile, organization: { synced: context.organizationSynced, managerIdentityId: context.managerIdentityId, subordinateCount: context.subordinateCount, sync: orgSyncStatusFor(status.profile?.id) } });
+            }
+            return json(res, 200, status);
+          }
+          if (req.method === "GET" && url.pathname === "/api/dingtalk/accounts") {
+            return json(res, 200, await dingtalk.accounts());
+          }
+          if (req.method === "POST" && url.pathname === "/api/dingtalk/accounts/switch") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(["accountId"]), "DINGTALK_INVALID_ACCOUNT_SWITCH_REQUEST");
+            return json(res, 200, await dingtalk.switchAccount(body.accountId));
+          }
+          if (req.method === "POST" && url.pathname === "/api/dingtalk/logout") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "DINGTALK_INVALID_LOGOUT_REQUEST");
+            return json(res, 200, await dingtalk.logout());
           }
           if (req.method === "GET" && url.pathname === "/api/integrations/status") {
             return json(res, 200, await integrationStatus());
@@ -1170,59 +1257,115 @@ export function workbenchApiPlugin({
             assertAllowedObjectKeys(body, new Set(), "DINGTALK_INVALID_OAUTH_REQUEST");
             return json(res, 200, await dingtalk.startOAuth());
           }
-          if (req.method === "GET" && url.pathname === "/api/dingtalk/oauth/callback") {
-            await dingtalk.completeOAuth({ code: url.searchParams.get("code"), state: url.searchParams.get("state"), error: url.searchParams.get("error") });
-            res.writeHead(302, { "Cache-Control": "no-store", Location: "/meetings?connected=1" }); res.end(); return;
+if (req.method === "GET" && url.pathname === "/api/dingtalk/oauth/callback") {
+            const result = await dingtalk.completeOAuth({ code: url.searchParams.get("code"), state: url.searchParams.get("state"), error: url.searchParams.get("error") });
+            // 回调只保存轻量身份并立即返回；组织关系由后台作业补全，避免重新引入登录超时
+            if (result.connected && result.profile?.id) ensureOrgSync(result.profile.id);
+            res.writeHead(302, { "Cache-Control": "no-store", Location: "/system?dingtalk_connected=1" }); res.end(); return;
           }
           if (req.method === "POST" && url.pathname === "/api/dingtalk/sync") {
             const body = await readJson(req, 8 * 1024);
             assertAllowedObjectKeys(body, new Set(["from", "to", "resources"]), "DINGTALK_INVALID_SYNC_REQUEST");
             return json(res, 200, await dingtalk.sync(body));
           }
+if (req.method === "POST" && url.pathname === "/api/dingtalk/organization/sync") {
+            const body = await readJson(req, 4 * 1024);
+            assertAllowedObjectKeys(body, new Set(), "DINGTALK_INVALID_ORGANIZATION_SYNC_REQUEST");
+            const status = await dingtalk.status();
+            if (!status.connected || !status.profile?.id) throw Object.assign(new Error("钉钉尚未连接。"), { code: "DINGTALK_NOT_CONNECTED" });
+            ensureOrgSync(status.profile.id);
+            return json(res, 200, { accountId: status.profile.id, ...orgSyncStatusFor(status.profile.id) });
+          }
           if (req.method === "GET" && url.pathname === "/api/dingtalk/events") {
             const from = url.searchParams.get("from") || undefined; const to = url.searchParams.get("to") || undefined;
             return json(res, 200, { items: await dingtalk.list({ from, to }) });
           }
+          if (req.method === "GET" && url.pathname === "/api/local-team/dashboard") {
+            const context = await currentIdentity();
+            if (!context?.id) throw Object.assign(new Error("钉钉尚未连接。"), { code: "DINGTALK_NOT_CONNECTED" });
+            const syncState = orgSyncStatusFor(context.profile?.id);
+            if (!context.organizationSynced && !context.canViewTeamReports) {
+              // 组织关系尚未同步完成：返回明确状态，页面轮询 organizationSync 后自动重新请求
+              const reportDate = String(url.searchParams.get("date") || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date()));
+              return json(res, 200, { reportDate, generatedAt: new Date().toISOString(), metrics: { submitted: 0, expected: 0, missing: 0, late: 0 }, members: [], reports: [], departments: [], summary: { blockers: [], decisions: [], nextActions: [] }, organizationSync: syncState });
+            }
+            const dashboard = identities.dashboard(context, { date: url.searchParams.get("date"), departmentId: url.searchParams.get("departmentId") || url.searchParams.get("department"), member: url.searchParams.get("member") });
+            return json(res, 200, { ...dashboard, organizationSync: syncState });
+          }
+          if (req.method === "GET" && url.pathname === "/api/local-team/reports") {
+            const context = await currentIdentity();
+            const dashboard = identities.dashboard(context, { date: url.searchParams.get("date"), departmentId: url.searchParams.get("departmentId") || url.searchParams.get("department"), member: url.searchParams.get("member") });
+            return json(res, 200, { items: dashboard.reports });
+          }
+          // Local-first compatibility endpoints. Daily-report sync is owned by
+          // this local service, never by the retired team-server process.
+          if (req.method === "POST" && url.pathname === "/api/local-daily-reports/sync") {
+            const body = await readJson(req, 8 * 1024);
+            assertAllowedObjectKeys(body, new Set(["scope", "date"]), "INVALID_DAILY_REPORT_SYNC_REQUEST");
+            const current = await currentIdentity();
+            if (!current?.profile?.dingtalkUserId) throw Object.assign(new Error("请先在系统状态页连接钉钉。"), { code: "DINGTALK_NOT_CONNECTED" });
+            const scope = body.scope || "daily-report";
+            const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date());
+            const reportDate = scope === "today-work" ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(`${requestedDate}T12:00:00+08:00`).getTime() - 86_400_000) : requestedDate;
+            if (!['today-work', 'daily-report', 'team-reports'].includes(scope)) throw Object.assign(new Error("不支持的日报同步范围。"), { code: "INVALID_SYNC_SCOPE" });
+            const userIds = scope === "team-reports" ? current.visibleIdentityIds.slice(1).map((id) => id.replace(/^dingtalk:/, "")) : [current.profile.dingtalkUserId];
+            if (scope === "team-reports" && !current.canViewTeamReports) throw Object.assign(new Error("当前账号没有下属日报查看权限。"), { code: "TEAM_REPORT_FORBIDDEN" });
+            const reports = (await Promise.all(userIds.map((userId) => dingtalkReports.fetchReportList({ from: reportDate, to: reportDate, userId })))).flat().map((report) => ({ ...report, reportDate: dingtalkReportDate(report.createTime) || reportDate }));
+            const saved = identities.saveReports(reports);
+            return json(res, 200, { ok: true, scope, date: reportDate, syncedAt: new Date().toISOString(), itemCount: saved });
+          }
+          if (req.method === "GET" && url.pathname === "/api/local-daily-reports") {
+            const current = await currentIdentity();
+            return json(res, 200, { items: identities.ownReports(current.id, { from: url.searchParams.get("from") || undefined, to: url.searchParams.get("to") || undefined }) });
+          }
+          const localDailyReportMatch = url.pathname.match(/^\/api\/local-daily-reports\/([^/]+)$/);
+          if (req.method === "GET" && localDailyReportMatch) {
+            const current = await currentIdentity();
+            return json(res, 200, identities.ownReport(current.id, decodeURIComponent(localDailyReportMatch[1])));
+          }
           if (req.method === "GET" && url.pathname === "/api/tasks") {
-            return json(res, 200, { items: tasks.list(url.searchParams.get("status") || "all") });
+            return json(res, 200, { items: tasks.list((await currentIdentity()).id, url.searchParams.get("status") || "all") });
+          }
+          if (req.method === "GET" && url.pathname === "/api/task-completions") {
+            return json(res, 200, { items: tasks.listCompletions((await currentIdentity()).id, url.searchParams.get("date")) });
           }
 
           if (req.method === "GET" && url.pathname === "/api/weekly-focus") {
-            return json(res, 200, { items: weeklyFocus.list(url.searchParams.get("week") || undefined) });
+            return json(res, 200, { items: weeklyFocus.list((await currentIdentity()).id, url.searchParams.get("week") || undefined) });
           }
           if (req.method === "POST" && url.pathname === "/api/weekly-focus") {
             const body = await readJson(req, 16 * 1024);
             assertAllowedObjectKeys(body, new Set(["weekStart", "title", "detail", "progress", "nextStep", "status"]), "INVALID_FOCUS_REQUEST");
-            return json(res, 201, weeklyFocus.create(body));
+            return json(res, 201, weeklyFocus.create((await currentIdentity()).id, body));
           }
           const focusTaskMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)\/tasks\/([^/]+)$/);
           if (focusTaskMatch && req.method === "DELETE") {
-            return json(res, 200, weeklyFocus.detachTask(decodeURIComponent(focusTaskMatch[1]), decodeURIComponent(focusTaskMatch[2])));
+            return json(res, 200, weeklyFocus.detachTask((await currentIdentity()).id, decodeURIComponent(focusTaskMatch[1]), decodeURIComponent(focusTaskMatch[2])));
           }
           const focusTasksMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)\/tasks$/);
           if (focusTasksMatch && req.method === "POST") {
             const body = await readJson(req, 8 * 1024);
             assertAllowedObjectKeys(body, new Set(["taskId"]), "INVALID_FOCUS_TASK_REQUEST");
-            return json(res, 201, weeklyFocus.attachTask(decodeURIComponent(focusTasksMatch[1]), body.taskId));
+            return json(res, 201, weeklyFocus.attachTask((await currentIdentity()).id, decodeURIComponent(focusTasksMatch[1]), body.taskId));
           }
           const focusMatch = url.pathname.match(/^\/api\/weekly-focus\/([^/]+)$/);
           if (focusMatch && req.method === "PATCH") {
             const body = await readJson(req, 16 * 1024);
             assertAllowedObjectKeys(body, new Set(["title", "detail", "progress", "nextStep", "status"]), "INVALID_FOCUS_REQUEST");
-            return json(res, 200, weeklyFocus.update(decodeURIComponent(focusMatch[1]), body));
+            return json(res, 200, weeklyFocus.update((await currentIdentity()).id, decodeURIComponent(focusMatch[1]), body));
           }
           if (focusMatch && req.method === "DELETE") {
-            return json(res, 200, weeklyFocus.remove(decodeURIComponent(focusMatch[1])));
+            return json(res, 200, weeklyFocus.remove((await currentIdentity()).id, decodeURIComponent(focusMatch[1])));
           }
 
           if (req.method === "POST" && url.pathname === "/api/tasks") {
             const body = await readJson(req, 16 * 1024);
             assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt", "sourceType", "sourceId", "sourceUrl", "priorityReason"]), "INVALID_TASK_REQUEST");
-            return json(res, 201, tasks.create(body));
+            return json(res, 201, tasks.create((await currentIdentity()).id, body));
           }
 
           if (req.method === "DELETE" && url.pathname === "/api/tasks/completed") {
-            return json(res, 200, tasks.clearCompleted());
+            return json(res, 200, tasks.clearCompleted((await currentIdentity()).id));
           }
           if (req.method === "POST" && url.pathname === "/api/weekly-report/ai-summary") {
             const body = await readJson(req, 256 * 1024);
@@ -1233,10 +1376,10 @@ export function workbenchApiPlugin({
           if (taskMatch && req.method === "PATCH") {
             const body = await readJson(req, 16 * 1024);
             assertAllowedObjectKeys(body, new Set(["title", "detail", "priority", "dueAt", "status"]), "INVALID_TASK_REQUEST");
-            return json(res, 200, tasks.update(decodeURIComponent(taskMatch[1]), body));
+            return json(res, 200, tasks.update(decodeURIComponent(taskMatch[1]), (await currentIdentity()).id, body));
           }
           if (taskMatch && req.method === "DELETE") {
-            return json(res, 200, tasks.remove(decodeURIComponent(taskMatch[1])));
+            return json(res, 200, tasks.remove(decodeURIComponent(taskMatch[1]), (await currentIdentity()).id));
           }
 
           if (req.method === "POST" && url.pathname === "/api/outlook/consent") {
@@ -1318,7 +1461,7 @@ export function workbenchApiPlugin({
             const { items } = await outlook.list("all");
             const message = items.find((item) => item.id === id);
             if (!message) throw new OutlookServiceError("OUTLOOK_MESSAGE_NOT_FOUND", "邮件不存在。");
-            const task = tasks.create({
+            const task = tasks.create((await currentIdentity()).id, {
               title: message.actionText || message.subject,
               detail: `来自 Outlook：${message.subject}`,
               priority: message.priority || "P1",

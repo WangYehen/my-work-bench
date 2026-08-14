@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupActions, mailAsAction } from "../src/lib/work-loop.js";
+import { groupActions, mailAsAction, taskAsAction } from "../src/lib/work-loop.js";
 import { parseDailyDraftResponse, ruleDailyDraft } from "../shared/daily-report-ai.mjs";
 
 test("action groups sort overdue, today, high priority, then later", () => {
@@ -17,7 +17,14 @@ test("action groups sort overdue, today, high priority, then later", () => {
 test("mail actions preserve priority reason and provenance", () => {
   const action = mailAsAction({ id: "m1", subject: "确认合同", actionText: "回复确认", priority: "P0", priorityReason: "今天截止", webLink: "https://example.test" });
   assert.equal(action.sourceType, "outlook");
+  assert.equal(action.actionKind, "outlook-message");
   assert.equal(action.priorityReason, "今天截止");
+});
+
+test("converted Outlook tasks remain completable task actions", () => {
+  const action = taskAsAction({ id: "task-1", title: "回复邮件", sourceType: "outlook", sourceId: "mail-1" });
+  assert.equal(action.actionKind, "task");
+  assert.equal(action.source, "Outlook");
 });
 
 test("daily draft rules and parser keep the four-field contract", () => {

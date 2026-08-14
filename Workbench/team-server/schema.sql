@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   dingtalk_user_id VARCHAR(190) NOT NULL UNIQUE,
   dingtalk_union_id VARCHAR(190) NULL UNIQUE,
   department_name VARCHAR(255) NULL,
+  avatar_url VARCHAR(500) NULL,
   manager_user_id VARCHAR(190) NULL,
   role ENUM('member', 'admin') NOT NULL DEFAULT 'member',
   status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
@@ -29,9 +30,17 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   completed_items TEXT NOT NULL,
   blockers TEXT NOT NULL,
   next_actions TEXT NOT NULL,
+  cooperation_needs TEXT NOT NULL,
+  images TEXT NOT NULL,
+  attachments TEXT NOT NULL,
+  template_name VARCHAR(128) NULL,
+  remark TEXT NULL,
+  dingtalk_report_id VARCHAR(64) NULL,
   submitted_at DATETIME(3) NOT NULL,
+  extra JSON NULL,
   updated_at DATETIME(3) NOT NULL,
   UNIQUE KEY uq_daily_report_owner_date (user_id, report_date),
+  UNIQUE KEY uq_daily_report_dingtalk (dingtalk_report_id),
   CONSTRAINT fk_daily_report_user FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
 

@@ -135,7 +135,7 @@
 .dy-kpi__hint {
   min-height: 30px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -179,7 +179,7 @@
   margin: 5px 0 0;
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .dy-window-card__metrics {
@@ -203,7 +203,7 @@
 
 .dy-window-card__metrics span {
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .dy-window-card__metrics strong {
@@ -220,7 +220,7 @@
   gap: 14px;
   margin-top: 12px;
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .dy-window-card__foot code {
@@ -276,7 +276,7 @@
 .dy-detail__eyebrow {
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.18em;
 }
@@ -303,7 +303,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -324,7 +324,7 @@
   gap: 15px;
   margin-top: 8px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-chart-legend span {
@@ -353,7 +353,7 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: var(--shadow-md);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-tooltip__date {
@@ -395,7 +395,7 @@
   background: var(--surface-sunken);
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1;
   white-space: nowrap;
 }
@@ -440,7 +440,7 @@
 
 .dy-collection-card__hero span {
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-mini-metrics {
@@ -462,7 +462,7 @@
 
 .dy-mini-metrics span {
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-mini-metrics strong {
@@ -505,7 +505,7 @@
 
 .dy-distribution__row span {
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-distribution__metric {
@@ -549,7 +549,7 @@
   border-radius: 10px;
   background: var(--surface);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -577,7 +577,7 @@
   border-collapse: separate;
   border-spacing: 0;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-assets__table th,
@@ -591,7 +591,7 @@
   background: var(--surface-sunken);
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-align: left;
@@ -634,7 +634,7 @@
   max-width: 340px;
   overflow: hidden;
   color: var(--ink-faint);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -659,7 +659,7 @@
   border-radius: 10px;
   background: var(--surface);
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-search {
@@ -702,7 +702,7 @@
   outline: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-check input {
@@ -774,13 +774,13 @@
 
 .dy-work-table__title strong {
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .dy-work-table__title span {
   margin-top: 3px;
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .dy-work-table__title svg {
@@ -849,7 +849,7 @@ button.dy-sort:hover,
 
 .dy-empty span {
   max-width: 500px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -877,7 +877,7 @@ button.dy-sort:hover,
 .dy-quality ul {
   margin: 8px 0 0;
   padding-left: 17px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.65;
 }
 
@@ -894,7 +894,7 @@ button.dy-sort:hover,
   padding-top: 18px;
   border-top: 1px solid var(--line);
   color: var(--ink-faint);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .dy-provenance > span:first-child {
@@ -958,7 +958,7 @@ button.dy-sort:hover,
   flex-wrap: wrap;
   gap: 8px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-detail__meta > span:not(.dy-depth-badge):not(.dy-content-badge) {
@@ -1049,7 +1049,7 @@ button.dy-sort:hover,
 
 .dy-detail-metrics span {
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-detail-metrics strong {
@@ -1093,13 +1093,13 @@ button.dy-sort:hover,
 .dy-detail-card__head p {
   margin: 4px 0 0;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .dy-detail-card__head > span {
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1113,7 +1113,7 @@ button.dy-sort:hover,
   gap: 12px;
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-detail-card dl > div:last-child {
@@ -1169,7 +1169,7 @@ button.dy-sort:hover,
   align-items: center;
   gap: 6px;
   color: var(--ink-faint);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-content-cover figcaption svg {
@@ -1185,7 +1185,7 @@ button.dy-sort:hover,
 .dy-content-script header span {
   color: var(--accent-strong);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -1214,7 +1214,7 @@ button.dy-sort:hover,
   border-radius: 999px;
   background: var(--accent-wash);
   color: var(--accent-strong);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1230,7 +1230,7 @@ button.dy-sort:hover,
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 16px;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-content-meta dt {
@@ -1247,7 +1247,7 @@ button.dy-sort:hover,
 .dy-content-meta code {
   color: var(--ink-soft);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-content-link {
@@ -1261,7 +1261,7 @@ button.dy-sort:hover,
   border: 1px solid var(--accent);
   border-radius: 10px;
   color: var(--accent-strong);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-decoration: none;
   transition: background 0.15s ease, color 0.15s ease;
@@ -1308,7 +1308,7 @@ button.dy-sort:hover,
   overflow: hidden;
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1357,7 +1357,7 @@ button.dy-sort:hover,
   padding-top: 12px;
   border-top: 1px dashed var(--line-strong);
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1395,13 +1395,13 @@ button.dy-sort:hover,
   justify-content: space-between;
   gap: 14px;
   color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .dy-evidence-bars strong {
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-evidence-bars i {
@@ -1438,20 +1438,20 @@ button.dy-sort:hover,
   border-radius: 8px;
   background: var(--surface-sunken);
   color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .dy-term-list b,
 .dy-keywords b {
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .dy-term-list em {
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
 }
 
@@ -1469,7 +1469,7 @@ button.dy-sort:hover,
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dy-chapters b,
@@ -1493,7 +1493,7 @@ button.dy-sort:hover,
   border: 1px dashed var(--line-strong);
   border-radius: 11px;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -1509,7 +1509,7 @@ button.dy-sort:hover,
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--ink-soft);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .dy-sources > div {
@@ -1530,7 +1530,7 @@ button.dy-sort:hover,
 
 .dy-sources strong {
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dy-sources span {
@@ -1559,7 +1559,7 @@ button.dy-sort:hover,
 .dy-sources code {
   overflow-wrap: anywhere;
   color: var(--ink-faint);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .sr-only {

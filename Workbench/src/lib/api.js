@@ -174,6 +174,10 @@ export function loadTasks(status = "all") {
   return request(`/api/tasks${query}`);
 }
 
+export function loadTaskCompletions(date) {
+  return request(`/api/task-completions?date=${encodeURIComponent(date)}`);
+}
+
 export function createTask(task) {
   return request("/api/tasks", { method: "POST", body: JSON.stringify(task) });
 }

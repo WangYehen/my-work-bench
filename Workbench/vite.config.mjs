@@ -47,7 +47,6 @@ export default defineConfig(({ mode }) => {
           userId: env.DINGTALK_USER_ID,
           calendarId: env.DINGTALK_CALENDAR_ID,
         },
-        teamReportApiUrl: env.VITE_TEAM_REPORT_API_URL || "http://127.0.0.1:8787",
       }),
     ],
   };

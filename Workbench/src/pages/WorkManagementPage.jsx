@@ -5,7 +5,7 @@ import {
   IconChevronDown, IconFileText, IconNotes, IconPlus, IconRefresh, IconSparkles, IconTrash, IconX,
 } from "@tabler/icons-react";
 import { PageHeader } from "../components/PageHeader";
-import { DateTimePicker } from "../components/WorkbenchCalendar";
+import { TaskForm } from "../components/TaskForm";
 import { buildWeeklyReport, workSnapshot } from "../data/work-management";
 import {
   clearCompletedTasks, createTask, deleteTask, loadOutlookTodos, loadTasks,
@@ -26,31 +26,6 @@ function IntegrationNotice({ service, detail }) {
 }
 
 const emptyForm = { title: "", detail: "", priority: "P1", dueAt: "" };
-
-function PrioritySelect({ value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const options = [["P0", "最高优先"], ["P1", "重要"], ["P2", "普通"]];
-  const current = options.find(([key]) => key === value) || options[1];
-  return <div className={`task-priority-picker${open ? " is-open" : ""}`}>
-    <button aria-expanded={open} aria-haspopup="listbox" className="task-priority-picker__trigger" onClick={() => setOpen((state) => !state)} type="button">
-      <span className={`task-priority-picker__dot task-priority-picker__dot--${current[0].toLowerCase()}`} />
-      <span><b>{current[0]}</b><small>{current[1]}</small></span><IconChevronDown size={14} />
-    </button>
-    {open && <div className="task-priority-picker__menu" role="listbox">{options.map(([key, label]) => <button aria-selected={key === value} className={key === value ? "is-selected" : ""} key={key} onClick={() => { onChange(key); setOpen(false); }} role="option" type="button"><span className={`task-priority-picker__dot task-priority-picker__dot--${key.toLowerCase()}`} /><span><b>{key}</b><small>{label}</small></span>{key === value && <IconCheck size={14} />}</button>)}</div>}
-  </div>;
-}
-
-function TaskForm({ initial = emptyForm, onSubmit, onCancel, busy }) {
-  const [form, setForm] = useState(initial);
-  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-  return <form className="task-form" onSubmit={(event) => { event.preventDefault(); onSubmit(form); }}>
-    <input className="task-form__title" autoFocus={!initial.id} required maxLength={200} placeholder="例如：确认 Q3 产品路线" value={form.title} onChange={(event) => set("title", event.target.value)} />
-    <input placeholder="备注（可选）" maxLength={1000} value={form.detail || ""} onChange={(event) => set("detail", event.target.value)} />
-    <PrioritySelect value={form.priority} onChange={(value) => set("priority", value)} />
-    <label className="task-form__due"><span>截止时间</span><DateTimePicker value={form.dueAt || ""} onChange={(value) => set("dueAt", value)} /></label>
-    <div className="task-form__actions"><button className="work-button work-button--primary" disabled={busy} type="submit"><IconCheck size={15} />{initial.id ? "保存" : "添加任务"}</button>{onCancel && <button className="work-button" type="button" onClick={onCancel}>取消</button>}</div>
-  </form>;
-}
 
 function TaskRow({ task, onToggle, onEdit, onDelete, pending }) {
   const remote = task.source === "dingtalk";
@@ -232,7 +207,7 @@ function ReportsModule() {
   const [generated, setGenerated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outlookItems, setOutlookItems] = useState([]);
-  const [tasks, setTasks] = useState(() => workSnapshot.tasks.map((task) => ({ ...task, status: task.completed ? "completed" : "open" })));
+  const [tasks, setTasks] = useState([]);
   const [weeklyFocus, setWeeklyFocus] = useState([]);
   const [dailyReports, setDailyReports] = useState([]);
   const [aiSummary, setAiSummary] = useState(null);

@@ -14,7 +14,7 @@ test("DingTalk pages read cache on entry and expose unified manual sync", async 
   assert.match(api, /export function syncDingTalk/);
   assert.match(meetings, /syncDingTalk\(\{ \.\.\.range, resources: \["events"\] \}\)/);
   assert.equal(workManagement.includes("同步钉钉"), false);
-  assert.match(meetings, /自动同步：每 1 小时/);
+  assert.match(meetings, /DingTalkSyncStatus/);
   assert.equal(workManagement.includes("自动同步：每 1 小时"), false);
   assert.equal(meetings.includes("setInterval"), false);
   assert.equal(meetings.includes("initialLoad"), false);
@@ -61,6 +61,9 @@ test("team report authentication is centralized in system settings", async () =>
   assert.match(system, /exchangeDingTalkDailyReportLogin/);
   assert.match(system, /logoutDailyReport/);
   assert.match(system, /system-team-auth/);
+  assert.match(system, /DINGTALK_IP_NOT_WHITELISTED/);
+  assert.match(system, /服务器出口 IP 白名单将在登录时继续校验/);
+  assert.match(system, /replaceState\(\{\}, "", globalThis\.location\.pathname\)/);
   for (const page of [weekly, daily, admin]) {
     assert.equal(page.includes("loginDailyReport"), false);
     assert.equal(page.includes("logoutDailyReport"), false);
@@ -83,7 +86,7 @@ test("Outlook inbox reports real sync state and uses the shared page header", as
   assert.match(outlook, /断开 Outlook 后将停止同步，但会保留本地邮件归档/);
   assert.equal(outlook.includes("识别中：{status.todoCount + status.uncertainCount}"), false);
   assert.match(styles, /\.action-inbox-tabs button \{[^}]*font-size: 14px/);
-  assert.match(styles, /\.action-mail-row small \{[^}]*font-size: 11px/);
+  assert.match(styles, /\.action-mail-row small \{[^}]*font-size: 12px/);
 });
 
 test("registered route pages use the shared header contract", async () => {
@@ -100,4 +103,22 @@ test("registered route pages use the shared header contract", async () => {
   assert.match(app, /path="\/books\/:bookId"/);
   assert.match(styles, /\.page-header__eyebrow/);
   assert.match(styles, /\.floating-search \{ display: none !important; \}/);
+});
+
+test("today work page offers a shared task dialog for manual tasks", async () => {
+  const [todayWork, taskForm, workManagement] = await Promise.all([
+    readFile(new URL("../src/pages/TodayWorkPage.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/TaskForm.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/pages/WorkManagementPage.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(todayWork, /新建任务/);
+  assert.match(todayWork, /TaskDialog/);
+  assert.match(todayWork, /createTask\(payload\)/);
+  assert.match(taskForm, /export function TaskDialog/);
+  assert.match(taskForm, /export function TaskForm/);
+  assert.match(taskForm, /aria-modal="true"/);
+  assert.match(taskForm, /task-modal/);
+  assert.equal(workManagement.includes("function TaskForm"), false);
+  assert.match(workManagement, /import \{ TaskForm \} from "\.\.\/components\/TaskForm"/);
 });

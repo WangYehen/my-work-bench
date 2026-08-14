@@ -39,6 +39,28 @@ function networkFailure(error, endpoint, proxyConfigured) {
   return { code: "DINGTALK_NETWORK_ERROR", message, details: { endpoint, cause, proxyConfigured } };
 }
 
+function validIpv4(value) {
+  const parts = String(value || "").split(".");
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+function whitelistFailure(value = {}) {
+  const errcode = Number(value.errcode || 0);
+  const subCode = text(value.sub_code || value.subCode, 64);
+  const rawMessage = text(value.sub_msg || value.subMsg || value.errmsg || value.message, 2048) || "";
+  const blocked = (errcode === 88 && (subCode === "60020" || /subcode\s*=\s*60020/i.test(rawMessage)))
+    || /访问\s*ip\s*不在白名单|ip[^，。;]*白名单/i.test(rawMessage);
+  if (!blocked) return null;
+  const candidate = first(value.request_ip, value.requestIp, rawMessage.match(/request\s*ip\s*=\s*((?:\d{1,3}\.){3}\d{1,3})/i)?.[1]);
+  const requestIp = validIpv4(candidate) ? candidate : null;
+  const subject = requestIp ? `服务器出口 IP ${requestIp}` : "服务器出口 IP";
+  return {
+    code: "DINGTALK_IP_NOT_WHITELISTED",
+    message: `钉钉应用${subject}未加入白名单。请前往“钉钉开放平台 → 应用 → 开发配置 → 服务器出口 IP”添加${requestIp ? ` ${requestIp}` : "当前出口 IP"}，保存后重新登录。`,
+    details: { errcode: errcode || null, subCode: subCode || "60020", requestIp },
+  };
+}
+
 export function normalizeDingTalkIdentity(value = {}) {
   const departments = Array.isArray(value.departments)
     ? value.departments
@@ -53,12 +75,15 @@ export function normalizeDingTalkIdentity(value = {}) {
     value.leader?.userId,
     value.leader?.userid,
   );
-  const dingtalkUserId = first(value.userId, value.userid, value.staffId, value.openId, value.openid, value.unionId, value.unionid);
-  if (!dingtalkUserId) fail("DINGTALK_IDENTITY_INVALID", "钉钉没有返回可用的组织用户标识。", value);
+  const dingtalkUserId = first(value.userId, value.userid, value.staffId);
+  const dingtalkUnionId = first(value.unionId, value.unionid);
+  const loginIdentity = first(dingtalkUserId, value.openId, value.openid, dingtalkUnionId);
+  if (!loginIdentity) fail("DINGTALK_IDENTITY_INVALID", "钉钉没有返回可用的组织用户标识。", value);
   return {
-    dingtalkUserId,
-    dingtalkUnionId: first(value.unionId, value.unionid),
-    displayName: first(value.name, value.displayName, value.nick, value.nickname, value.username) || dingtalkUserId,
+    dingtalkUserId: dingtalkUserId || null,
+    dingtalkUnionId,
+    displayName: first(value.name, value.displayName, value.nick, value.nickname, value.username) || loginIdentity,
+    avatarUrl: first(value.avatar, value.avatarUrl, value.avatar_url) || null,
     departmentName: first(value.departmentName, value.deptName, departments[0]?.name, departments[0]?.deptName),
     managerUserId,
     departmentIds: departments.map((item) => first(item.id, item.deptId, item.departmentId)).filter(Boolean),
@@ -146,9 +171,21 @@ export function createDingTalkAuthService({ config = {}, fetchImpl = fetch, now 
       if (!response.ok) { lastDetails = value; continue; }
       try {
         const identity = normalizeDingTalkIdentity(value.result || value.data || value);
-        return await enrichOrganizationIdentity(identity);
+        const enriched = await enrichOrganizationIdentity(identity);
+        if (!enriched.dingtalkUserId) {
+          fail("DINGTALK_ORGANIZATION_USERID_REQUIRED", "无法取得当前用户的企业 userid，请检查钉钉组织通讯录权限与网络连接。", {
+            hasUnionId: Boolean(enriched.dingtalkUnionId),
+            organizationSynced: enriched.organizationSynced === true,
+          });
+        }
+        return enriched;
       }
-      catch (error) { if (error instanceof DingTalkAuthError) lastDetails = error.details; else throw error; }
+      catch (error) {
+        if (error instanceof DingTalkAuthError) {
+          if (["DINGTALK_ORGANIZATION_USERID_REQUIRED", "DINGTALK_IP_NOT_WHITELISTED"].includes(error.code)) throw error;
+          lastDetails = error.details;
+        } else throw error;
+      }
     }
     if (lastNetwork) fail("DINGTALK_IDENTITY_REQUEST_FAILED", lastNetwork.message, lastNetwork.details);
     fail("DINGTALK_IDENTITY_REQUEST_FAILED", "无法取得当前钉钉组织用户信息。", lastDetails);
@@ -161,23 +198,30 @@ export function createDingTalkAuthService({ config = {}, fetchImpl = fetch, now 
     try { response = await fetchImpl(endpoint, { method, headers: { "Content-Type": "application/json", Accept: "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}), ...(dispatcher ? { dispatcher } : {}) }); }
     catch (error) { const network = networkFailure(error, legacyApiBaseUrl, Boolean(proxyUrl)); fail("DINGTALK_ORGANIZATION_SYNC_FAILED", network.message, network.details); }
     const value = await response.json().catch(() => ({}));
+    const whitelist = whitelistFailure(value);
+    if (whitelist) fail(whitelist.code, whitelist.message, whitelist.details);
     if (!response.ok || Number(value.errcode || 0) !== 0) fail("DINGTALK_ORGANIZATION_SYNC_FAILED", value.errmsg || value.message || value.code || "钉钉组织信息同步失败。", value);
     return value.result || value;
   }
 
   async function getAppAccessToken() {
     if (tokenManager) {
-      try { return (await tokenManager.getAppAccessToken()).accessToken; } catch (error) { if (error.code !== "DINGTALK_NOT_CONNECTED") throw error; }
+      try { return (await tokenManager.getAppAccessToken()).accessToken; }
+      catch (error) {
+        if (!["DINGTALK_NOT_CONNECTED", "DINGTALK_TOKEN_EXPIRED"].includes(error.code)) throw error;
+      }
     }
     if (appAccessToken?.expiresAt > now().getTime() + 60_000) return appAccessToken.value;
-    const query = new URLSearchParams({ appkey: clientId, appsecret: clientSecret });
-    let response;
-    try { response = await fetchImpl(`${legacyApiBaseUrl}/gettoken?${query}`, dispatcher ? { dispatcher } : {}); }
-    catch (error) { const network = networkFailure(error, legacyApiBaseUrl, Boolean(proxyUrl)); fail("DINGTALK_ORGANIZATION_SYNC_FAILED", network.message, network.details); }
-    const value = await response.json().catch(() => ({}));
-    if (!response.ok || Number(value.errcode || 0) !== 0 || !value.access_token) fail("DINGTALK_ORGANIZATION_SYNC_FAILED", value.errmsg || "无法取得钉钉应用访问凭证。", value);
-    appAccessToken = { value: value.access_token, expiresAt: now().getTime() + Number(value.expires_in || 7200) * 1000 };
-    if (tokenManager) await tokenManager.saveAppToken({ access_token: value.access_token, expires_in: value.expires_in || 7200 });
+    const value = await requestJson(`${apiBaseUrl}/v1.0/oauth2/accessToken`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appKey: clientId, appSecret: clientSecret, grantType: "client_credentials" }),
+    }, "DINGTALK_ORGANIZATION_SYNC_FAILED");
+    const accessToken = value.accessToken || value.access_token;
+    if (!accessToken) fail("DINGTALK_ORGANIZATION_SYNC_FAILED", "钉钉没有返回企业访问凭证。", { code: value.code || null });
+    const expiresIn = Number(value.expireIn || value.expires_in || 7200);
+    appAccessToken = { value: accessToken, expiresAt: now().getTime() + expiresIn * 1000 };
+    if (tokenManager) await tokenManager.saveAppToken({ accessToken, expireIn: expiresIn });
     return appAccessToken.value;
   }
 
@@ -198,13 +242,15 @@ export function createDingTalkAuthService({ config = {}, fetchImpl = fetch, now 
         dingtalkUserId: first(detail.userid, detail.userId, userId) || identity.dingtalkUserId,
         dingtalkUnionId: first(detail.unionid, detail.unionId, identity.dingtalkUnionId),
         displayName: first(detail.name, identity.displayName) || identity.displayName,
+        avatarUrl: first(detail.avatar, detail.avatarUrl, detail.avatar_url, identity.avatarUrl) || null,
         managerUserId: first(detail.manager_userid, detail.managerUserid, identity.managerUserId),
         departmentIds: departmentIds || [],
         departmentName,
         active: detail.active !== false && identity.active,
         organizationSynced: true,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof DingTalkAuthError && error.code === "DINGTALK_IP_NOT_WHITELISTED") throw error;
       return { ...identity, organizationSynced: false };
     }
   }

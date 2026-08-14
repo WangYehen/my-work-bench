@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { listDailyReportAccounts, switchDailyReportAccount, logoutDailyReport } from "../lib/daily-reports";
 import {
   IconAlertTriangle,
   IconCalendarClock,
@@ -7,8 +8,8 @@ import {
   IconClipboardCheck,
   IconChevronDown,
   IconCommand,
+  IconFlame,
   IconHome,
-  IconLibrary,
   IconMail,
   IconMenu2,
   IconReportAnalytics,
@@ -29,7 +30,7 @@ const primaryNavigation = [
   { to: "/weekly-report", label: "周报", icon: IconClipboardCheck, group: "work" },
   { to: "/meetings", label: "会议日程", icon: IconCalendarClock, group: "more" },
   ...(localWorkbench ? [{ to: "/outlook", label: "工作邮箱", icon: IconMail, group: "more" }] : []),
-  { to: "/overview", label: "知识库", icon: IconLibrary, group: "more" },
+  { to: "/daily-hot", label: "每日热点", icon: IconFlame, group: "more" },
   { to: "/system", label: "系统状态", icon: IconShieldCheck, group: "more" },
 ];
 
@@ -44,6 +45,8 @@ const groupLabel = { leader: "团队", more: "更多" };
 export function AppShell({ children, onOpenSearch, teamUser }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accounts, setAccounts] = useState([]);
   const canLead = teamUser?.role === "admin" || teamUser?.canViewTeamReports;
   const navigation = canLead
     ? [...primaryNavigation.filter((item) => item.group === "work"), ...leaderNavigation, ...primaryNavigation.filter((item) => item.group !== "work")]
@@ -57,6 +60,16 @@ export function AppShell({ children, onOpenSearch, teamUser }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mobileOpen]);
+
+  const openAccountMenu = async () => {
+    setAccountMenuOpen((value) => !value);
+    if (!accountMenuOpen) {
+      const result = await listDailyReportAccounts().catch(() => null);
+      setAccounts(result?.accounts || []);
+    }
+  };
+  const switchAccount = async (accountId) => { await switchDailyReportAccount(accountId); setAccountMenuOpen(false); };
+  const logout = async () => { await logoutDailyReport(); setAccountMenuOpen(false); };
 
   return (
     <div className={`app-shell${sidebarCollapsed ? " app-shell--sidebar-collapsed" : ""}`}>
@@ -76,14 +89,14 @@ export function AppShell({ children, onOpenSearch, teamUser }) {
           <img alt="" aria-hidden="true" src="/workbench-mark.svg" />
           <span>个人AI工作台</span>
         </span>
-        <button
+        {teamUser ? <button
           aria-label="搜索"
           className="icon-button"
           onClick={onOpenSearch}
           type="button"
         >
           <IconSearch aria-hidden="true" />
-        </button>
+        </button> : null}
       </header>
 
       {mobileOpen ? (
@@ -141,18 +154,19 @@ export function AppShell({ children, onOpenSearch, teamUser }) {
         </div>
 
         <div className="sidebar__bottom">
-          <NavLink
-            className="sidebar__profile"
-            onClick={() => setMobileOpen(false)}
-            to="/system"
-          >
-            <span className="sidebar__avatar" aria-hidden="true"><IconUserFilled /></span>
+          <button className="sidebar__profile" onClick={openAccountMenu} type="button">
+            <span className="sidebar__avatar" aria-hidden="true">{teamUser?.avatarUrl ? <img alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} src={teamUser.avatarUrl} /> : <IconUserFilled />}</span>
             <span className="sidebar__profile-copy">
               <strong>{teamUser?.displayName || teamUser?.username || "个人账户"}</strong>
-              <small>{teamUser ? `${teamUser.departmentName || "未同步部门"} · ${teamUser.role === "admin" ? "管理员" : "成员"}` : "本地工作台"}</small>
+              <small>{teamUser ? `${teamUser.departmentName || "未同步部门"} · ${teamUser.role === "admin" ? "管理员" : teamUser.role === "manager" || teamUser.canViewTeamReports ? "主管" : "成员"}` : "本地工作台"}</small>
             </span>
             <IconChevronDown aria-hidden="true" className="sidebar__profile-chevron" stroke={1.6} />
-          </NavLink>
+          </button>
+          {accountMenuOpen ? <div className="sidebar__account-menu" role="menu">
+            {accounts.map((account) => <button disabled={account.id === teamUser?.id} key={account.id} onClick={() => switchAccount(account.id)} role="menuitem" type="button">{account.avatarUrl ? <img alt="" src={account.avatarUrl} /> : null}<span>{account.displayName}</span>{account.id === teamUser?.id ? <small>当前</small> : null}</button>)}
+            <NavLink onClick={() => { setAccountMenuOpen(false); setMobileOpen(false); }} to="/system">添加账号</NavLink>
+            {teamUser ? <button onClick={logout} role="menuitem" type="button">退出当前账号</button> : null}
+          </div> : null}
         </div>
       </aside>
 
@@ -169,7 +183,7 @@ export function AppShell({ children, onOpenSearch, teamUser }) {
 
       <main className="app-main">{children}</main>
 
-      <button
+      {teamUser ? <button
         aria-label="打开全局搜索"
         className="floating-search"
         onClick={onOpenSearch}
@@ -180,7 +194,7 @@ export function AppShell({ children, onOpenSearch, teamUser }) {
         <span className="floating-search__shortcut">
           <IconCommand aria-hidden="true" />K
         </span>
-      </button>
+      </button> : null}
     </div>
   );
 }

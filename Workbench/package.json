@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"npm:team-server\"",
-    "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"npm:team-server\" \"wait-on http://127.0.0.1:5174 http://127.0.0.1:8787/healthz && electron electron/main.mjs\"",
+    "dev": "vite --host 127.0.0.1",
+    "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5174 && electron electron/main.mjs\"",
     "electron:build": "vite build && electron-builder",
     "team-server": "node --env-file=.env team-server/server.mjs",
+    "dev:team": "concurrently -k \"vite --host 127.0.0.1\" \"npm:team-server\"",
     "team-data:reset": "node --env-file=.env team-server/reset-data.mjs",
     "test": "npm run build && node scripts/test.mjs",
     "privacy:scan": "node scripts/privacy-scan.mjs",

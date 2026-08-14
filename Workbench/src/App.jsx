@@ -25,6 +25,10 @@ import { getDailyReportUser, subscribeDailyReportAuth } from "./lib/daily-report
 
 const localWorkbench = import.meta.env.VITE_WORKBENCH_HOSTED !== "true";
 
+function PrivacyLockedPage() {
+  return <main className="privacy-locked-page"><section><span>PRIVACY LOCKED</span><h1>个人数据已隐藏</h1><p>请先在“系统状态”登录钉钉账号。登录后才会加载邮箱、日程、任务、日报及其他个人内容。</p></section></main>;
+}
+
 export function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,6 +51,13 @@ export function App() {
   }, []);
 
   useEffect(() => subscribeDailyReportAuth(setTeamUser), []);
+
+  useEffect(() => {
+    if (teamUser) return;
+    setSearchOpen(false);
+    setSelectedDocumentId(null);
+    setReaderContext(null);
+  }, [teamUser]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -91,7 +102,7 @@ export function App() {
   return (
     <>
       <AppShell onOpenSearch={appContext.openSearch} sync={vaultSync} teamUser={teamUser}>
-        <Routes key={routeRevision}>
+        {!teamUser && location.pathname !== "/system" ? <PrivacyLockedPage /> : <Routes key={`${routeRevision}:${teamUser?.id || "locked"}`}>
           <Route path="/" element={<TodayWorkPage />} />
           <Route path="/overview" element={<OverviewPage onOpenDocument={openDocument} />} />
           <Route path="/graph" element={<GraphPage onOpenDocument={openDocument} />} />
@@ -162,19 +173,19 @@ export function App() {
           />
           <Route path="/system" element={<SystemPage />} />
           <Route path="*" element={<Navigate replace to="/" />} />
-        </Routes>
+        </Routes>}
       </AppShell>
 
-      <SearchPalette
+      {teamUser ? <SearchPalette
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onOpenDocument={(document) => {
           openDocument(document);
           setSearchOpen(false);
         }}
-      />
+      /> : null}
 
-      <DocumentDrawer
+      {teamUser ? <DocumentDrawer
         documentId={selectedDocumentId}
         onNavigateDocument={openDocument}
         onClose={() => {
@@ -182,7 +193,7 @@ export function App() {
           setReaderContext(null);
         }}
         readingContext={readerContext}
-      />
+      /> : null}
     </>
   );
 }

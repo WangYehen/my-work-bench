@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconCalendarEvent, IconRefresh } from "@tabler/icons-react";
 import { PageHeader } from "../components/PageHeader";
+import { DingTalkSyncStatus } from "../components/DingTalkSyncStatus";
 import { WorkbenchCalendar, formatCalendarDate } from "../components/WorkbenchCalendar";
 import { loadDingTalkEvents, loadDingTalkStatus, syncDingTalk } from "../lib/api";
 import { meetingEndLabel, mergeDuplicateMeetings } from "../lib/meeting-display";
@@ -23,7 +24,7 @@ export function MeetingsPage() {
   const stateLabel = status?.connected ? "已连接" : status?.configured ? "等待授权" : "未配置";
   return <div className="page page--work-management">
     <PageHeader eyebrow="DINGTALK / CALENDAR" title="会议日程" description="按日期查看钉钉会议与准备信息。" actions={status?.connected ? <button className="work-button" disabled={busy} onClick={sync} type="button"><IconRefresh size={14} />{busy ? "同步中…" : "立即同步"}</button> : null} meta={<span className={`status-chip ${status?.connected ? "status-chip--ok" : "status-chip--warn"}`}>{stateLabel}</span>} />
-    <div className="work-notice"><span className={`status-dot ${status?.connected ? "status-dot--ok" : "status-dot--warn"}`} /><div><strong>钉钉日程{stateLabel}</strong><span>{status?.sync?.events?.lastSuccessAt ? `最近同步：${new Date(status.sync.events.lastSuccessAt).toLocaleString("zh-CN")}` : "尚未完成日程同步"} · 自动同步：每 1 小时</span></div></div>
+    <DingTalkSyncStatus label="钉钉日程" status={status} />
     {error && <div className="work-error" role="alert">{error}</div>}
     <div className="team-reports-layout"><section className="team-reports-content"><div className="team-reports-content__head"><div><span className="eyebrow">DINGTALK SCHEDULE</span><h2>{selectedDate} <small>{selectedEvents.length} 场日程</small></h2></div><span className="team-reports-content__hint">点击右侧日期查看当天日程</span></div><section className="meeting-list" aria-label="当天会议日程">{selectedEvents.length ? selectedEvents.map((event) => <article className="meeting-row" key={event.id || `${event.startAt}-${event.title}`}><time>{event.isAllDay ? "全天" : time(event.startAt)}<small>{meetingEndLabel(event, time)}</small></time><div><span className="badge">钉钉日程</span>{event.duplicateCount > 1 ? <span className="badge badge--muted">已合并 {event.duplicateCount} 条</span> : null}<strong>{event.title}</strong><p>{[event.location, event.organizer, event.attendees?.length ? `${event.attendees.length} 位参与人` : ""].filter(Boolean).join(" · ") || "暂无地点或参与人信息"}</p>{event.meetingUrl && <a className="work-link" href={event.meetingUrl} rel="noreferrer" target="_blank">打开会议链接</a>}</div><IconCalendarEvent aria-hidden="true" size={20} /></article>) : <div className="report-empty"><IconCalendarEvent size={24} /><strong>当天暂无钉钉日程</strong><span>请在右侧日历选择其他日期，或点击“立即同步”。</span></div>}</section></section><WorkbenchCalendar ariaLabel="钉钉日程日历" selectedDate={selectedDate} markedDates={markedDates} onSelect={setSelectedDate} /></div>
   </div>;

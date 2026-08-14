@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconCalendar, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 
 const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
@@ -24,4 +25,47 @@ export function CalendarPicker({ value, onChange }) {
 
 function TimePicker({ value, onChange }) { const [hour = "09", minute = "00"] = (value || "09:00").split(":"); const setTime = (nextHour, nextMinute) => onChange(`${nextHour}:${nextMinute}`); const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0")); const minutes = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, "0")); return <div className="calendar-time-picker"><div className="calendar-time-picker__column"><span>小时</span><div>{hours.map((item) => <button className={item === hour ? "is-selected" : ""} key={item} onClick={() => setTime(item, minute)} type="button">{item}</button>)}</div></div><b>:</b><div className="calendar-time-picker__column"><span>分钟</span><div>{minutes.map((item) => <button className={item === minute ? "is-selected" : ""} key={item} onClick={() => setTime(hour, item)} type="button">{item}</button>)}</div></div></div>; }
 
-export function DateTimePicker({ value, onChange }) { const [open, setOpen] = useState(false); const pickerRef = useRef(null); const datePart = value?.slice(0, 10) || ""; const timePart = value?.slice(11, 16) || ""; const selectedDate = datePart || formatCalendarDate(new Date()); useEffect(() => { const close = (event) => { if (!pickerRef.current?.contains(event.target)) setOpen(false); }; document.addEventListener("mousedown", close); return () => document.removeEventListener("mousedown", close); }, []); const updateDate = (date) => onChange(`${date}T${timePart || "09:00"}`); const updateTime = (time) => onChange(`${datePart || selectedDate}T${time}`); return <div className="calendar-picker calendar-picker--datetime" ref={pickerRef}><button aria-label="选择截止时间" className="calendar-picker__trigger" onClick={() => setOpen((current) => !current)} type="button"><span>{datePart ? `${datePart.replaceAll("-", "/")} ${timePart || "--:--"}` : "选择截止时间"}</span><IconCalendar size={14} /></button>{open && <div className="calendar-picker__popover"><CalendarPanel selectedDate={selectedDate} onSelect={updateDate} /><div className="calendar-picker__time"><TimePicker value={timePart} onChange={updateTime} /><button className="work-button work-button--primary" onClick={() => setOpen(false)} type="button">完成</button></div></div>}</div>; }
+export function DateTimePicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef(null);
+  const panelRef = useRef(null);
+  const panelId = useId();
+  const datePart = value?.slice(0, 10) || "";
+  const timePart = value?.slice(11, 16) || "";
+  const selectedDate = datePart || formatCalendarDate(new Date());
+
+  useEffect(() => {
+    const close = (event) => {
+      if (!pickerRef.current?.contains(event.target) && !panelRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const updateDate = (date) => onChange(`${date}T${timePart || "09:00"}`);
+  const updateTime = (time) => onChange(`${datePart || selectedDate}T${time}`);
+  const panel = open ? createPortal(
+    <div className="calendar-picker-layer" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) setOpen(false);
+    }}>
+      <div aria-label="选择日期和时间" className="calendar-picker__popover calendar-picker__popover--floating" id={panelId} ref={panelRef} role="dialog">
+        <CalendarPanel selectedDate={selectedDate} onSelect={updateDate} />
+        <div className="calendar-picker__time">
+          <TimePicker value={timePart} onChange={updateTime} />
+          <button className="work-button work-button--primary" onClick={() => setOpen(false)} type="button">完成</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
+  return <div className="calendar-picker calendar-picker--datetime" ref={pickerRef}>
+    <button aria-controls={open ? panelId : undefined} aria-expanded={open} aria-haspopup="dialog" aria-label="选择截止时间" className="calendar-picker__trigger" onClick={() => setOpen((current) => !current)} type="button">
+      <span>{datePart ? `${datePart.replaceAll("-", "/")} ${timePart || "--:--"}` : "选择截止时间"}</span>
+      <IconCalendar size={14} />
+    </button>
+    {panel}
+  </div>;
+}

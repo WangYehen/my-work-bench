@@ -5,8 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProxyAgent } from "undici";
 import mysql from "mysql2/promise";
-import { normalizeDailyReportInput } from "../shared/daily-report-contracts.mjs";
+import { createDingTalkReportService, dingtalkReportDate } from "./dingtalk-reports.mjs";
 import { createDingTalkAuthService, normalizeDingTalkIdentity } from "./dingtalk-auth.mjs";
+import { shanghaiDate, startDailyReportSyncScheduler } from "./report-sync-schedule.mjs";
 import { createDingTalkTokenManager } from "../shared/dingtalk-token-manager.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +81,7 @@ function publicUser(row) {
     displayName: row.display_name || row.displayName,
     dingtalkUserId: row.dingtalk_user_id || row.dingtalkUserId,
     departmentName: row.department_name || row.departmentName || null,
+    avatarUrl: row.avatar_url || row.avatarUrl || null,
     managerUserId: row.manager_user_id || row.managerUserId || null,
     role: row.role,
     status: row.status,
@@ -113,6 +115,9 @@ export function summarizeTeamReports(reports = []) {
       blockerGroups.set(key, group);
       if (/决策|确认|批准|审批|拍板|资源|支持/.test(blocker)) decisions.push({ text: blocker, owner: report.displayName || report.username, departmentName: report.departmentName, dueAt: report.reportDate });
     }
+    for (const need of splitLines(report.cooperationNeeds)) {
+      if (/决策|确认|批准|审批|拍板|资源|支持/.test(need)) decisions.push({ text: need, owner: report.displayName || report.username, departmentName: report.departmentName, dueAt: report.reportDate });
+    }
     for (const action of splitLines(report.nextActions)) nextActions.push({ text: action, owner: report.displayName || report.username, departmentName: report.departmentName });
   }
   return {
@@ -128,10 +133,10 @@ async function upsertDingTalkUser(identity) {
   const role = adminDingTalkIds.has(identity.dingtalkUserId) ? "admin" : "member";
   const username = safeUsername(identity);
   await pool.execute(`INSERT INTO users
-    (username, display_name, dingtalk_user_id, dingtalk_union_id, department_name, manager_user_id, role, status, last_synced_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (username, display_name, dingtalk_user_id, dingtalk_union_id, department_name, avatar_url, manager_user_id, role, status, last_synced_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE username=VALUES(username), display_name=VALUES(display_name), dingtalk_user_id=VALUES(dingtalk_user_id), dingtalk_union_id=VALUES(dingtalk_union_id),
-      department_name=VALUES(department_name), manager_user_id=VALUES(manager_user_id),
+      department_name=VALUES(department_name), avatar_url=VALUES(avatar_url), manager_user_id=VALUES(manager_user_id),
       role=IF(users.role='admin', users.role, VALUES(role)), status=VALUES(status),
       last_synced_at=VALUES(last_synced_at), updated_at=VALUES(updated_at)`,
   [
@@ -140,6 +145,7 @@ async function upsertDingTalkUser(identity) {
     identity.dingtalkUserId,
     identity.dingtalkUnionId ?? null,
     identity.departmentName ?? null,
+    identity.avatarUrl ?? null,
     identity.managerUserId ?? null,
     role,
     identity.active ? "active" : "disabled",
@@ -147,7 +153,7 @@ async function upsertDingTalkUser(identity) {
     timestamp,
     timestamp,
   ]);
-  const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, dingtalk_union_id, department_name, manager_user_id, role, status, last_synced_at FROM users WHERE dingtalk_union_id <=> ? OR dingtalk_user_id = ? LIMIT 1", [identity.dingtalkUnionId ?? null, identity.dingtalkUserId]);
+  const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, dingtalk_union_id, department_name, avatar_url, manager_user_id, role, status, last_synced_at FROM users WHERE dingtalk_union_id <=> ? OR dingtalk_user_id = ? LIMIT 1", [identity.dingtalkUnionId ?? null, identity.dingtalkUserId]);
   const user = rows[0];
   if (!user || user.status !== "active") throw error("DINGTALK_USER_DISABLED", "当前钉钉用户未启用日报权限。");
   return user;
@@ -158,7 +164,7 @@ async function auth(req, requiredRole = null) {
   const session = sessions.get(token);
   if (!session || session.expiresAt < Date.now()) { sessions.delete(token); throw error("AUTH_REQUIRED", "请先使用钉钉登录。"); }
   if (session.expiresAt - Date.now() < 24 * 60 * 60 * 1000) session.expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-  const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, department_name, manager_user_id, role, status, last_synced_at FROM users WHERE id = ? LIMIT 1", [session.userId]);
+  const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, department_name, avatar_url, manager_user_id, role, status, last_synced_at FROM users WHERE id = ? LIMIT 1", [session.userId]);
   const user = rows[0];
   if (!user || user.status !== "active") { sessions.delete(token); throw error("AUTH_REQUIRED", "当前钉钉用户已被停用，请重新登录。"); }
   if (requiredRole && user.role !== requiredRole) throw error("FORBIDDEN", "没有权限执行该操作。");
@@ -201,12 +207,80 @@ async function listReportsForUser(user, from, to) {
   if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(",");
   const [rows] = await pool.execute(`SELECT r.id, r.report_date AS reportDate, r.summary, r.completed_items AS completedItems,
-    r.blockers, r.next_actions AS nextActions, r.submitted_at AS submittedAt, u.id AS userId,
+    r.blockers, r.next_actions AS nextActions, r.cooperation_needs AS cooperationNeeds,
+    r.images, r.attachments, r.template_name AS templateName, r.submitted_at AS submittedAt, u.id AS userId,
     u.username, u.display_name AS displayName, u.department_name AS departmentName
     FROM daily_reports r JOIN users u ON u.id = r.user_id
     WHERE r.user_id IN (${placeholders}) AND r.report_date BETWEEN ? AND ?
     ORDER BY r.report_date DESC, u.display_name ASC`, [...ids, from, to]);
   return rows;
+}
+
+// 按钉钉用户 ID 查找工作台用户
+async function findUserByDingtalkId(dingtalkUserId) {
+  const [rows] = await pool.execute("SELECT id FROM users WHERE dingtalk_user_id = ? LIMIT 1", [dingtalkUserId]);
+  return rows[0] || null;
+}
+
+// 钉钉日志创建者尚未在工作台注册时，懒创建占位用户以承接其日报数据
+async function createPlaceholderUser(report) {
+  const timestamp = now();
+  const username = safeUsername({ displayName: report.creatorName, dingtalkUserId: report.creatorId });
+  await pool.execute(`INSERT INTO users
+    (username, display_name, dingtalk_user_id, department_name, role, status, last_synced_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'member', 'active', ?, ?, ?)
+    ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), department_name=VALUES(department_name),
+      last_synced_at=VALUES(last_synced_at), updated_at=VALUES(updated_at)`,
+  [username, report.creatorName || "钉钉成员", report.creatorId, report.deptName || null, timestamp, timestamp, timestamp]);
+  return findUserByDingtalkId(report.creatorId);
+}
+
+// 将指定日期范围的钉钉日志同步入库（可仅同步单个用户），返回同步统计
+async function syncReportRange({ from, to, userId = null, actorUserId = null, force = false }) {
+  if (!dingtalkReports) return { synced: false, reason: "not_configured" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return { synced: false, reason: "invalid_range" };
+  const throttleKey = `${userId || "team"}:${from}:${to}`;
+  if (!force && Date.now() - (reportSyncThrottle.get(throttleKey) || 0) < reportSyncTtlMs) return { synced: false, reason: "throttled" };
+  const lookbackFrom = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(new Date(Date.now() - reportSyncLookbackDays * 24 * 60 * 60 * 1_000));
+  const effectiveFrom = from < lookbackFrom ? lookbackFrom : from;
+  const reports = await dingtalkReports.fetchReportList({ from: effectiveFrom, to, userId });
+  let upserted = 0;
+  let skipped = 0;
+  for (const report of reports) {
+    const reportDate = dingtalkReportDate(report.createTime);
+    if (!report.creatorId || !reportDate) { skipped += 1; continue; }
+    let owner = await findUserByDingtalkId(report.creatorId);
+    if (!owner) owner = await createPlaceholderUser(report);
+    if (!owner) { skipped += 1; continue; }
+    const [existing] = await pool.execute("SELECT submitted_at, dingtalk_report_id FROM daily_reports WHERE user_id = ? AND report_date = ?", [owner.id, reportDate]);
+    const row = existing[0];
+    if (row?.dingtalk_report_id && row.dingtalk_report_id !== report.reportId) {
+      const existingAt = row.submitted_at ? Date.parse(row.submitted_at) : 0;
+      if (report.createTime <= existingAt) { skipped += 1; continue; }
+    }
+    await pool.execute(`INSERT INTO daily_reports
+      (user_id, report_date, summary, completed_items, blockers, next_actions, cooperation_needs, images, attachments, template_name, remark, dingtalk_report_id, submitted_at, extra, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE summary=VALUES(summary), completed_items=VALUES(completed_items), blockers=VALUES(blockers),
+        next_actions=VALUES(next_actions), cooperation_needs=VALUES(cooperation_needs), images=VALUES(images),
+        attachments=VALUES(attachments), template_name=VALUES(template_name), remark=VALUES(remark),
+        dingtalk_report_id=VALUES(dingtalk_report_id), submitted_at=VALUES(submitted_at), extra=VALUES(extra), updated_at=VALUES(updated_at)`,
+    [owner.id, reportDate, report.completedItems, report.completedItems, report.blockers, report.nextActions, report.cooperationNeeds, report.images, report.attachments, report.templateName, report.remark, report.reportId, new Date(report.createTime).toISOString(), JSON.stringify(report.extra), now()]);
+    upserted += 1;
+  }
+  reportSyncThrottle.set(throttleKey, Date.now());
+  if (upserted && actorUserId) await audit(actorUserId, "sync", "daily_report", `${effectiveFrom}:${to}`);
+  return { synced: true, pulled: reports.length, upserted, skipped };
+}
+
+// 查询前按需同步：同步失败时降级返回存量数据，不阻塞查询
+async function syncBeforeQuery({ from, to, userId = null, actorUserId = null }) {
+  try {
+    return await syncReportRange({ from, to, userId, actorUserId });
+  } catch (failure) {
+    console.warn(`DingTalk report sync skipped: ${failure.message}`);
+    return { synced: false, reason: "sync_failed" };
+  }
 }
 
 async function decoratedUser(user) {
@@ -226,6 +300,7 @@ async function decoratedUser(user) {
 async function teamDashboard(user, query) {
   const reportDate = query.get("date") || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now());
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw error("INVALID_REPORT_DATE", "日报日期无效。");
+  await syncBeforeQuery({ from: reportDate, to: reportDate, actorUserId: user.id });
   const ids = await visibleUserIds(user);
   if (!ids.length) return { reportDate, metrics: { submitted: 0, expected: 0, missing: 0, late: 0 }, members: [], reports: [], summary: summarizeTeamReports([]) };
   const placeholders = ids.map(() => "?").join(",");
@@ -300,6 +375,25 @@ const dingtalk = createDingTalkAuthService({
   tokenManager: dingtalkTokenManager,
 });
 
+// 钉钉日志（日报）拉取服务：与企业 access token 存储共用加密数据库
+const dingtalkReports = dingtalkTokenStore && process.env.DINGTALK_CLIENT_ID && process.env.DINGTALK_CLIENT_SECRET
+  ? createDingTalkReportService({
+      config: {
+        clientId: process.env.DINGTALK_CLIENT_ID,
+        clientSecret: process.env.DINGTALK_CLIENT_SECRET,
+        apiBaseUrl: process.env.DINGTALK_API_BASE_URL || "https://api.dingtalk.com",
+        topapiBaseUrl: process.env.DINGTALK_TOPAPI_BASE_URL || "https://oapi.dingtalk.com",
+        reportListPath: process.env.DINGTALK_REPORT_LIST_PATH || "/topapi/report/list",
+        templateName: process.env.DINGTALK_REPORT_TEMPLATE_NAME || "IT部门日报",
+        dispatcher: dingtalkDispatcher,
+      },
+      store: dingtalkTokenStore,
+    })
+  : null;
+const reportSyncThrottle = new Map();
+const reportSyncTtlMs = Number(process.env.DINGTALK_REPORT_SYNC_TTL_MS || 60_000);
+const reportSyncLookbackDays = Number(process.env.DINGTALK_REPORT_MAX_LOOKBACK_DAYS || 90);
+
 async function route(req, res) {
   if (req.method === "OPTIONS") return json(res, 204, {});
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
@@ -345,11 +439,31 @@ async function route(req, res) {
     if (!pending || pending.expiresAt < Date.now()) throw error("AUTH_EXCHANGE_INVALID", "钉钉登录凭证已失效，请重新登录。");
     const token = cryptoRandomToken();
     sessions.set(token, { userId: pending.userId, issuedAt: Date.now(), expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 });
-    const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, department_name, manager_user_id, role, status, last_synced_at FROM users WHERE id = ? LIMIT 1", [pending.userId]);
+    const [rows] = await pool.execute("SELECT id, username, display_name, dingtalk_user_id, department_name, avatar_url, manager_user_id, role, status, last_synced_at FROM users WHERE id = ? LIMIT 1", [pending.userId]);
     return json(res, 200, { token, user: publicUser(rows[0]) });
   }
   const user = await auth(req);
   if (req.method === "GET" && url.pathname === "/api/team/me") return json(res, 200, { user: await decoratedUser(user) });
+  if (req.method === "POST" && url.pathname === "/api/team/daily-reports/sync") {
+    const input = await body(req);
+    const scope = String(input.scope || "daily-report");
+    const reportDate = String(input.date || shanghaiDate(now()));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) throw error("INVALID_REPORT_DATE", "日报日期无效。");
+    let from = reportDate;
+    let to = reportDate;
+    let userId = user.dingtalk_user_id;
+    if (scope === "today-work") {
+      from = shanghaiDate(new Date(`${reportDate}T12:00:00+08:00`), -1);
+      to = from;
+    } else if (scope === "team-reports") {
+      userId = null;
+    } else if (scope !== "daily-report") {
+      throw error("INVALID_SYNC_SCOPE", "不支持的日报同步范围。");
+    }
+    const result = await syncReportRange({ from, to, userId, actorUserId: user.id, force: true });
+    if (!result.synced && result.reason === "not_configured") throw error("DINGTALK_REPORT_NOT_CONFIGURED", "尚未配置钉钉日志同步服务。");
+    return json(res, 200, { ...result, scope, from, to });
+  }
   if (req.method === "GET" && url.pathname === "/api/team/dashboard") return json(res, 200, await teamDashboard(user, url.searchParams));
   if (req.method === "GET" && url.pathname === "/api/team/dashboard/summary") {
     const dashboard = await teamDashboard(user, url.searchParams);
@@ -358,6 +472,7 @@ async function route(req, res) {
   if (req.method === "GET" && url.pathname === "/api/team/weekly-summary") {
     const from = url.searchParams.get("from") || "1000-01-01";
     const to = url.searchParams.get("to") || "9999-12-31";
+    await syncBeforeQuery({ from, to, actorUserId: user.id });
     const reports = await listReportsForUser(user, from, to);
     return json(res, 200, { from, to, reportCount: reports.length, ...summarizeTeamReports(reports) });
   }
@@ -365,27 +480,22 @@ async function route(req, res) {
     const from = url.searchParams.get("from") || "1000-01-01";
     const to = url.searchParams.get("to") || "9999-12-31";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw error("INVALID_DATE_RANGE", "日报日期范围无效。");
+    await syncBeforeQuery({ from, to, userId: user.dingtalk_user_id, actorUserId: user.id });
     const ids = [user.id];
     const placeholders = ids.map(() => "?").join(",");
-    const [rows] = await pool.execute(`SELECT id, report_date AS reportDate, summary, completed_items AS completedItems, blockers, next_actions AS nextActions, submitted_at AS submittedAt, updated_at AS updatedAt FROM daily_reports WHERE user_id IN (${placeholders}) AND report_date BETWEEN ? AND ? ORDER BY report_date ASC`, [...ids, from, to]);
+    const [rows] = await pool.execute(`SELECT id, report_date AS reportDate, summary, completed_items AS completedItems, blockers, next_actions AS nextActions, cooperation_needs AS cooperationNeeds, images, attachments, template_name AS templateName, remark, dingtalk_report_id AS dingtalkReportId, submitted_at AS submittedAt, updated_at AS updatedAt FROM daily_reports WHERE user_id IN (${placeholders}) AND report_date BETWEEN ? AND ? ORDER BY report_date ASC`, [...ids, from, to]);
     return json(res, 200, { items: rows });
   }
   const ownMatch = url.pathname.match(/^\/api\/team\/daily-reports\/me\/(\d{4}-\d{2}-\d{2})$/);
   if (ownMatch && req.method === "GET") {
-    const [rows] = await pool.execute("SELECT id, report_date AS reportDate, summary, completed_items AS completedItems, blockers, next_actions AS nextActions, submitted_at AS submittedAt, updated_at AS updatedAt FROM daily_reports WHERE user_id = ? AND report_date = ?", [user.id, ownMatch[1]]);
+    await syncBeforeQuery({ from: ownMatch[1], to: ownMatch[1], userId: user.dingtalk_user_id, actorUserId: user.id });
+    const [rows] = await pool.execute(`SELECT id, report_date AS reportDate, summary, completed_items AS completedItems, blockers, next_actions AS nextActions, cooperation_needs AS cooperationNeeds, images, attachments, template_name AS templateName, remark, dingtalk_report_id AS dingtalkReportId, submitted_at AS submittedAt, updated_at AS updatedAt FROM daily_reports WHERE user_id = ? AND report_date = ?`, [user.id, ownMatch[1]]);
     return json(res, 200, rows[0] || null);
-  }
-  if (ownMatch && req.method === "PUT") {
-    const report = normalizeDailyReportInput({ ...(await body(req)), reportDate: ownMatch[1] });
-    const timestamp = now();
-    const [result] = await pool.execute(`INSERT INTO daily_reports (user_id, report_date, summary, completed_items, blockers, next_actions, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE summary=VALUES(summary), completed_items=VALUES(completed_items), blockers=VALUES(blockers), next_actions=VALUES(next_actions), submitted_at=VALUES(submitted_at), updated_at=VALUES(updated_at)`, [user.id, report.reportDate, report.summary, report.completedItems, report.blockers, report.nextActions, timestamp, timestamp]);
-    await audit(user.id, "upsert", "daily_report", String(result.insertId || ""));
-    const currentUser = await decoratedUser(user);
-    return json(res, 200, { id: result.insertId || null, reportDate: report.reportDate, submittedAt: timestamp.toISOString(), recipient: currentUser.reportRecipient, syncStatus: "synced" });
   }
   if (req.method === "GET" && url.pathname === "/api/team/reports") {
     const from = url.searchParams.get("from") || "1000-01-01";
     const to = url.searchParams.get("to") || "9999-12-31";
+    await syncBeforeQuery({ from, to, actorUserId: user.id });
     return json(res, 200, { items: await listReportsForUser(user, from, to) });
   }
   if (req.method === "GET" && url.pathname === "/api/team/members") {
@@ -416,10 +526,45 @@ if (process.env.MYSQL_URL || process.env.MYSQL_HOST) {
   try {
     const schema = fs.readFileSync(path.join(root, "schema.sql"), "utf8");
     for (const statement of schema.split(/;\s*(?:\r?\n|$)/).map((item) => item.trim()).filter(Boolean)) await pool.query(statement);
+    await migrateUsersTable();
+    await migrateDailyReportsTable();
     databaseReady = true;
   } catch (startupError) {
     console.warn(`Team report database unavailable: ${startupError.message}`);
   }
+}
+
+if (databaseReady && dingtalkReports) {
+  startDailyReportSyncScheduler({
+    hour: Number(process.env.DINGTALK_REPORT_DAILY_SYNC_HOUR || 8),
+    run: (range) => syncReportRange({ ...range, force: true }),
+  });
+}
+
+// 旧库迁移：为已有 users 表补充钉钉头像列（MySQL 8.0 不支持 ADD COLUMN IF NOT EXISTS）
+async function migrateUsersTable() {
+  const [columns] = await pool.query("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'avatar_url'");
+  if (Number(columns[0]?.n || 0) === 0) await pool.query("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500) NULL AFTER department_name");
+}
+
+// 旧库迁移：为已有 daily_reports 表补充钉钉日志相关列与唯一索引
+async function migrateDailyReportsTable() {
+  const [columns] = await pool.query("SELECT column_name AS name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'daily_reports'");
+  const names = new Set(columns.map((column) => column.name));
+  const additions = [
+    ["cooperation_needs", "TEXT NOT NULL"],
+    ["images", "TEXT NOT NULL"],
+    ["attachments", "TEXT NOT NULL"],
+    ["template_name", "VARCHAR(128) NULL"],
+    ["remark", "TEXT NULL"],
+    ["dingtalk_report_id", "VARCHAR(64) NULL"],
+    ["extra", "JSON NULL"],
+  ];
+  for (const [column, definition] of additions) {
+    if (!names.has(column)) await pool.query(`ALTER TABLE daily_reports ADD COLUMN ${column} ${definition}`);
+  }
+  const [indexes] = await pool.query("SELECT COUNT(*) AS n FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'daily_reports' AND index_name = 'uq_daily_report_dingtalk'");
+  if (Number(indexes[0]?.n || 0) === 0) await pool.query("CREATE UNIQUE INDEX uq_daily_report_dingtalk ON daily_reports (dingtalk_report_id)");
 }
 
 http.createServer((req, res) => route(req, res).catch((err) => {

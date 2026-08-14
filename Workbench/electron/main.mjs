@@ -6,30 +6,33 @@ import { normalizeDailyReportInput } from "../shared/daily-report-contracts.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
-const teamApiBase = String(process.env.TEAM_REPORT_API_URL || "").replace(/\/$/, "");
-if (teamApiBase && !/^https:\/\//i.test(teamApiBase) && !/^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(teamApiBase) && !/^https?:\/\/localhost(?::\d+)?$/i.test(teamApiBase)) throw new Error("TEAM_REPORT_API_URL 必须使用 HTTPS（本机开发可使用 localhost）。");
 let mainWindow;
 let tray;
 let authToken = null;
 let authUser = null;
 let reportStore;
 
-async function teamRequest(pathname, options = {}) {
-  if (!teamApiBase) throw new Error("尚未配置 TEAM_REPORT_API_URL。");
-  const response = await fetch(`${teamApiBase}${pathname}`, { ...options, headers: { Accept: "application/json", "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...options.headers } });
+async function localWorkbenchRequest(pathname, options = {}) {
+  const response = await fetch(`http://127.0.0.1:5174${pathname}`, {
+    ...options,
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...(options.headers || {}) },
+  });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body?.error?.message || "团队日报服务请求失败。");
+  if (!response.ok) {
+    const failure = new Error(body?.error?.message || "本地钉钉服务请求失败。");
+    failure.code = body?.error?.code;
+    throw failure;
+  }
   return body;
 }
 
 async function syncReport(report) {
   const payload = normalizeDailyReportInput(report);
-  if (!authToken) throw new Error("请先使用钉钉登录团队日报。");
-  const result = await teamRequest(`/api/team/daily-reports/me/${payload.reportDate}`, { method: "PUT", body: JSON.stringify(payload) });
-  return reportStore.markSynced(payload.reportDate, result.id);
+  return reportStore.markSynced(payload.reportDate, null);
 }
 
 async function syncPending() {
+  if (!await currentDingTalkUser()) return [];
   const results = [];
   for (const report of reportStore.listPending()) {
     try { results.push(await syncReport(report)); }
@@ -38,31 +41,46 @@ async function syncPending() {
   return results;
 }
 
+async function currentDingTalkUser() {
+  const status = await localWorkbenchRequest("/api/dingtalk/status").catch(() => null);
+  if (!status?.connected || !status.profile?.id) return null;
+  reportStore.setIdentity(status.profile);
+  return { id: status.profile.id, displayName: status.profile.displayName || "钉钉已连接", avatarUrl: status.profile.avatarUrl || null, departmentName: status.profile.departmentName || "本地工作台", role: "member" };
+}
+
 function registerIpc() {
-  ipcMain.handle("daily-report:get", (_event, date) => reportStore.get(String(date)));
-  ipcMain.handle("daily-report:list", (_event, range = {}) => reportStore.list(range.from, range.to));
-  ipcMain.handle("daily-report:save", (_event, report) => reportStore.save(report, "draft"));
+  ipcMain.handle("daily-report:get", async (_event, date) => { await currentDingTalkUser(); return reportStore.get(String(date)); });
+  ipcMain.handle("daily-report:list", async (_event, range = {}) => { await currentDingTalkUser(); return reportStore.list(range.from, range.to); });
+  ipcMain.handle("daily-report:save", async (_event, report) => { await currentDingTalkUser(); return reportStore.save(report, "draft"); });
   ipcMain.handle("daily-report:submit", async (_event, report) => {
-    const saved = reportStore.save(report, "pending_sync");
+    await currentDingTalkUser(); const saved = reportStore.save(report, "pending_sync");
     try { return await syncReport(saved); }
     catch (error) { return reportStore.markError(saved.reportDate, error.message); }
   });
   ipcMain.handle("daily-report:sync", () => syncPending());
-  ipcMain.handle("daily-report:dingtalk-start", () => teamRequest("/api/team/auth/dingtalk/start", { method: "POST", body: JSON.stringify({}) }));
-  ipcMain.handle("daily-report:dingtalk-exchange", async (_event, loginToken) => {
-    const result = await teamRequest("/api/team/auth/exchange", { method: "POST", body: JSON.stringify({ token: loginToken }) });
-    authToken = result.token;
-    authUser = result.user;
-    await syncPending();
+  ipcMain.handle("daily-report:sync-dingtalk-reports", async (_event, input = {}) => {
+    return localWorkbenchRequest("/api/local-daily-reports/sync", { method: "POST", body: JSON.stringify(input) });
+  });
+  ipcMain.handle("daily-report:dingtalk-start", () => localWorkbenchRequest("/api/dingtalk/oauth/start", { method: "POST", body: "{}" }));
+  // The local-first OAuth callback completes in the Vite service. Keep this
+  // channel for older renderer builds that still invoke it after a callback.
+  ipcMain.handle("daily-report:dingtalk-exchange", async () => {
+    authUser = await localWorkbenchRequest("/api/dingtalk/status").then((status) => status.connected
+      ? { displayName: status.profile?.displayName || "钉钉已连接", avatarUrl: status.profile?.avatarUrl || null, departmentName: status.profile?.departmentName || "本地工作台", role: "member" }
+      : null);
+    if (!authUser) throw new Error("钉钉授权尚未完成。");
     return authUser;
   });
-  ipcMain.handle("daily-report:logout", async () => { authToken = null; authUser = null; return { ok: true }; });
-  ipcMain.handle("daily-report:me", () => authUser);
-  ipcMain.handle("daily-report:admin-reports", async (_event, filters = {}) => {
-    if (!authUser) throw new Error("请先使用钉钉登录。");
-    const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value));
-    return teamRequest(`/api/team/reports?${query}`);
+  ipcMain.handle("daily-report:logout", async () => { authToken = null; authUser = null; reportStore.setIdentity(null); return localWorkbenchRequest("/api/dingtalk/logout", { method: "POST", body: "{}" }); });
+  ipcMain.handle("daily-report:accounts", () => localWorkbenchRequest("/api/dingtalk/accounts"));
+  ipcMain.handle("daily-report:switch-account", async (_event, accountId) => { const result = await localWorkbenchRequest("/api/dingtalk/accounts/switch", { method: "POST", body: JSON.stringify({ accountId }) }); authUser = null; reportStore.setIdentity(result.profile || null); return result; });
+  ipcMain.handle("daily-report:me", async () => {
+    if (authUser) return authUser;
+    authUser = await currentDingTalkUser();
+    if (!authUser) return null;
+    return authUser;
   });
+  ipcMain.handle("daily-report:admin-reports", async () => ({ items: [] }));
 }
 
 function createWindow() {
