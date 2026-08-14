@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLocalReportStore } from "./local-report-store.mjs";
 import { normalizeDailyReportInput } from "../shared/daily-report-contracts.mjs";
+import { startEmbeddedWorkbench } from "./embedded-server.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -11,6 +12,7 @@ let tray;
 let authToken = null;
 let authUser = null;
 let reportStore;
+let embeddedWorkbench = null;
 
 async function localWorkbenchRequest(pathname, options = {}) {
   const response = await fetch(`http://127.0.0.1:5174${pathname}`, {
@@ -86,7 +88,7 @@ function registerIpc() {
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1440, height: 960, minWidth: 1024, minHeight: 700, webPreferences: { preload: path.join(__dirname, "preload.mjs"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   if (isDev) mainWindow.loadURL("http://127.0.0.1:5174");
-  else mainWindow.loadFile(path.join(__dirname, "../dist/client/index.html"));
+  else mainWindow.loadURL("http://127.0.0.1:5174");
 }
 
 function createTray() {
@@ -95,9 +97,19 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([{ label: "打开工作台", click: () => mainWindow?.show() }, { type: "separator" }, { role: "quit" }]));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   reportStore = createLocalReportStore(app.getPath("userData"));
+  if (!isDev) {
+    // 打包版无独立 Vite 服务:内嵌本地 API 与静态资源服务。
+    embeddedWorkbench = await startEmbeddedWorkbench({
+      dataDirectory: app.getPath("userData"),
+      resourcesPath: process.resourcesPath,
+    }).catch((error) => {
+      console.error("内嵌服务启动失败:", error);
+      return null;
+    });
+  }
   registerIpc();
   createWindow();
   createTray();
@@ -105,4 +117,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", (event) => { event.preventDefault(); });
-app.on("before-quit", () => reportStore?.close());
+app.on("before-quit", async () => {
+  await embeddedWorkbench?.close();
+  reportStore?.close();
+});
