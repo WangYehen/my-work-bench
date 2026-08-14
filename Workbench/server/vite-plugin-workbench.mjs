@@ -51,7 +51,7 @@ import { createDingTalkService, DingTalkServiceError } from "./dingtalk.mjs";
 import { createTaskService } from "./tasks.mjs";
 import { createWeeklyFocusService } from "./weekly-focus.mjs";
 import { createIdentityContext } from "./identity-context.mjs";
-import { createDingTalkReportService, dingtalkReportDate } from "../team-server/dingtalk-reports.mjs";
+import { createDingTalkReportService, dingtalkReportDate } from "./dingtalk-reports.mjs";
 import { workSnapshot } from "../src/data/work-management.js";
 import { createWeeklySummaryService } from "../shared/weekly-report-ai.mjs";
 import { createDailyDraftService } from "../shared/daily-report-ai.mjs";
@@ -846,25 +846,8 @@ export function workbenchApiPlugin({
   const generateWeeklySummary = createWeeklySummaryService({ config: outlookConfig });
   const generateDailyDraft = createDailyDraftService({ config: outlookConfig });
   const teamReportHealth = async () => {
-    // The desktop runtime is local-first. Enterprise team-server health is
-    // deliberately not probed from this process.
+    // 本地优先运行时不再探测独立的团队服务；团队日报健康状态固定为"未配置"。
     return { configured: false, connected: false, status: "needs_configuration", missing: [], lastError: null };
-    /* c8 ignore start -- retained only as an enterprise deployment reference
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1_500);
-    try {
-      const response = await fetch(`${String(teamReportApiUrl).replace(/\/$/, "")}/healthz`, { signal: controller.signal });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || body.ok !== true || body.databaseReady !== true) {
-        const databaseMissing = response.ok && body.ok === true && body.databaseReady !== true;
-        return { configured: false, connected: false, status: "needs_configuration", missing: databaseMissing ? ["MYSQL_URL"] : ["团队日报服务"], lastError: databaseMissing ? "团队日报服务已启动，但 MySQL 尚未连接。" : `团队日报服务不可用（HTTP ${response.status}）。` };
-      }
-      return { configured: true, connected: true, status: "ready", missing: [], lastError: null };
-    } catch (error) {
-      return { configured: false, connected: false, status: "needs_configuration", missing: ["团队日报服务"], lastError: "团队日报服务未启动。" };
-    } finally {
-      clearTimeout(timer);
-    } */
   };
   const integrationStatus = async () => {
     const [outlookStatus, dingtalkStatus, teamStatus] = await Promise.all([
@@ -1298,7 +1281,7 @@ if (req.method === "POST" && url.pathname === "/api/dingtalk/organization/sync")
             return json(res, 200, { items: dashboard.reports });
           }
           // Local-first compatibility endpoints. Daily-report sync is owned by
-          // this local service, never by the retired team-server process.
+          // this local service, not by a separate team-server process.
           if (req.method === "POST" && url.pathname === "/api/local-daily-reports/sync") {
             const body = await readJson(req, 8 * 1024);
             assertAllowedObjectKeys(body, new Set(["scope", "date"]), "INVALID_DAILY_REPORT_SYNC_REQUEST");

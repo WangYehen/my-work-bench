@@ -17,11 +17,3 @@ test("electron DingTalk auth remains on the IPC bridge", async () => {
   assert.match(source, /bridge\(\)\.dingtalkExchange\(loginToken\)/);
   assert.match(source, /bridge\(\)\.logout\(\)/);
 });
-
-test("team auth no longer exposes legacy password login", async () => {
-  const source = await readFile(new URL("../team-server/server.mjs", import.meta.url), "utf8");
-  assert.equal(source.includes("/api/team/auth/login"), false);
-  assert.match(source, /\/api\/team\/auth\/dingtalk\/start/);
-  assert.match(source, /\/api\/team\/auth\/exchange/);
-  assert.match(source, /manager_user_id/);
-});

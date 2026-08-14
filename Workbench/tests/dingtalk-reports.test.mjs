@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDingTalkReportService, dateRangeToMillis, dingtalkReportDate, normalizeDingTalkReport } from "../team-server/dingtalk-reports.mjs";
+import { createDingTalkReportService, dateRangeToMillis, dingtalkReportDate, normalizeDingTalkReport } from "../server/dingtalk-reports.mjs";
 
 // 构造简易 Response 对象
 function jsonResponse(value, status = 200) {

@@ -4,9 +4,13 @@
 > 分析时间：2026-08-13  
 > 结论来源：项目源码、`package.json`、`vite.config.mjs`、测试目录和现有文档。本文描述当前工作区中的实现，不代表未来规划。
 
+> **产品方向声明**：本项目的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。产品定位为**本地优先的工作管理平台**，核心能力是对接钉钉与 Outlook 邮箱数据，并借助 LLM 进行数据分析；数据完全存放到本地，多用户按身份隔离。Overview、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器与全文搜索等知识库相关模块的入口已隐藏；社媒洞察与抖音数据读取仍保留（Vault 仅作为这两类已整理数据的只读来源）。
+
 ## 1. 架构摘要
 
-Personal AI Workbench 是一个“本地优先、Vault 驱动、Agent 可调用”的个人知识与工作管理台。它将 Markdown/CSV/JSON 等文件作为主要内容来源，由 Node.js 运行时扫描和建立索引，React 前端负责浏览、搜索、阅读和可视化；需要持久化的本地交互状态放在 SQLite 或 Electron 本地存储中。
+Personal AI Workbench 是一个“本地优先、Agent 可调用”的个人工作管理台。产品主线是把钉钉（日程/待办/日报/组织）与 Outlook（邮件）数据同步到本地，由 React 前端统一聚合为“今日工作 → 日报 → 团队复盘”的工作流，并借助 LLM 提供邮件分类、日报草稿、周报摘要等分析能力；需要持久化的本地交互状态放在 SQLite 或 Electron 本地存储中。
+
+> 代码仓库仍保留 Markdown Vault 的索引与展示能力（Vault 作为社媒洞察/抖音数据的只读来源），但知识库浏览/阅读/搜索相关模块在产品上不开放。
 
 ```mermaid
 flowchart LR
@@ -19,7 +23,6 @@ flowchart LR
     API --> AG[Codex Runner\nAgent 工作流与解释任务]
     DESK[Electron 主进程] --> UI
     DESK --> LOCAL[本地日报存储]
-    DESK --> TEAM[独立 Team Server\n日报认证 / 汇总 / 审计]
 ```
 
 核心判断：它不是典型的前后端分离项目，而是以 Vite 开发服务器为宿主、由自定义插件同时承载前端开发和本地 API 的一体化应用。生产构建后，前端静态产物可用于 hosted/site 场景；桌面版通过 Electron 加载同一套前端，并额外暴露受控 IPC 能力。
@@ -28,10 +31,7 @@ flowchart LR
 
 ### 2.1 本地 Web 开发模式
 
-`Workbench/package.json` 的 `dev` 脚本并行启动两个进程：
-
-- Vite 前端开发服务器，默认绑定 `127.0.0.1:5174`。
-- `team-server`，默认用于团队日报相关接口，端口取决于环境配置，代码入口为 `team-server/server.mjs`。
+`Workbench/package.json` 的 `dev` 脚本启动 Vite 前端开发服务器，默认绑定 `127.0.0.1:5174`。
 
 `vite.config.mjs` 注册了 `workbenchApiPlugin()`。该插件通过 `configureServer()` 拦截 `/api/*` 请求，因此本地页面、Vault API 和大部分业务逻辑共享同一个 loopback 服务。
 
@@ -40,7 +40,6 @@ flowchart LR
 `electron/main.mjs` 创建安全配置的 `BrowserWindow`：启用 `contextIsolation`、关闭 `nodeIntegration`、启用 sandbox，并通过 `preload.mjs` 只暴露日报相关 IPC 方法。Electron 主进程还负责：
 
 - 在用户数据目录维护本地日报草稿和待同步数据。
-- 使用 Bearer Token 调用独立 Team Server。
 - 定时同步待提交日报。
 - 提供系统托盘入口。
 
@@ -62,7 +61,6 @@ Workbench/
 │  └─ hooks/            Vault 同步等 React Hooks
 ├─ server/              Vite 内置 API、Vault 索引、领域服务和安全校验
 ├─ shared/              前后端共享的数据契约、AI 摘要与 Token 工具
-├─ team-server/         独立团队日报 HTTP 服务与 MySQL schema
 ├─ electron/            Electron 主进程、preload 和本地日报存储
 ├─ worker/              静态托管 Worker 入口
 ├─ scripts/             构建、测试编排、隐私扫描、Demo 数据生成
@@ -70,36 +68,29 @@ Workbench/
 └─ public/、docs/       静态资源与项目文档
 ```
 
-前端路由集中在 `src/App.jsx`，当前页面覆盖 Overview、Wiki、Materials、Books、Graph、Daily Hot、Social Insights、Douyin、任务/周重点/会议/日报、Outlook 和系统页等。跨页面的文档打开、搜索面板、阅读抽屉和 Vault revision 由 App 层统一协调。
+前端路由集中在 `src/App.jsx`，导航入口在 `src/components/AppShell.jsx` 中配置。当前对用户开放的页面为工作管理（今日工作/待办/周重点/周报）、会议日程、日报与团队三页、Outlook、每日热点、社媒洞察与系统页。Overview、Wiki、Materials、Books、Graph、内容主题等知识库页面仅保留路由与代码，导航入口已隐藏，不对用户开放（见文件头部产品方向声明）。
 
 ## 4. 数据架构
 
-### 4.1 Vault：内容事实源
+### 4.1 Vault：已整理数据的只读来源
 
-默认 Vault 是项目旁边的 `个人知识库`；也可以通过 `PERSONAL_DASHBOARD_VAULT_ROOT` 指向仓库外的真实 Vault。`server/vault-index.mjs` 负责递归扫描、排除目录、解析 Markdown frontmatter、识别书籍/材料/Wiki/社媒数据，并构造文档索引。
+在产品方向下，Vault 仅用于**社媒洞察**与**抖音数据**等已整理数据的只读展示，知识库浏览/阅读/搜索模块不开放。默认 Vault 是项目旁边的 `个人知识库`；也可以通过 `PERSONAL_DASHBOARD_VAULT_ROOT` 指向仓库外的数据目录。`server/vault-index.mjs` 仍负责递归扫描、排除目录、解析 Markdown frontmatter、识别书籍/材料/Wiki/社媒数据，并构造文档索引（能力保留，知识类模块不对外）。
 
 Vault 的设计重点是“文件可读、来源可追溯”：
 
-- Raw、Wiki、书籍、脚本、社媒报告和账户数据以目录及文件契约组织。
-- `searchIndex()` 为搜索和集合页提供统一入口。
+- 社媒报告和账户数据以目录及文件契约组织。
+- `searchIndex()` 为搜索和集合页提供统一入口（知识类页面不开放）。
 - 文档通过稳定 ID/相对路径在前端、阅读器和图谱之间传递。
 - 图片读取先经过允许根目录和路径校验，避免任意文件读取。
 - `PUBLIC_HIDDEN_PATH_PREFIXES` 等规则将私有工作流目录排除在公开构建、搜索和最近项目之外。
 
 ### 4.2 SQLite：本地交互状态
 
-`vite-plugin-workbench.mjs` 将 `.local/workbench.sqlite` 作为默认本地数据库路径，并在服务端组合阅读笔记、阅读解释、材料阅读状态、任务和周重点等服务。它保存的是“应用状态”和派生交互数据，不取代 Vault 的内容存储职责。
+`vite-plugin-workbench.mjs` 将 `.local/workbench.sqlite` 作为默认本地数据库路径，并在服务端组合任务、周重点、日报草稿等本地状态（阅读笔记、材料阅读状态等服务随知识库模块不开放而不再对外）。它保存的是“应用状态”和派生交互数据，不取代外部同步数据的存储职责。
 
-### 4.3 Team Server：团队日报数据
+### 4.3 钉钉日报与团队数据
 
-`team-server/schema.sql` 使用 MySQL/InnoDB，主要实体包括：
-
-- `users`：钉钉用户、部门、角色和状态。
-- `dingtalk_tokens`：加密后的 Token。
-- `daily_reports`：按用户和日期唯一的日报。
-- `audit_logs`：管理操作审计。
-
-Team Server 与本地 Workbench 的边界是 HTTP API；Electron 本地保存草稿，登录后将待同步日报提交到 Team Server。
+钉钉日报的真实拉取与入库由 `server/dingtalk-reports.mjs` 与 `server/identity-context.mjs` 承担：前者通过 `/topapi/report/list` 拉取个人或下属日报，后者按 `dingtalk:<userid>` 身份写入本地 SQLite 的 `daily_reports`，并基于 `org_members` 推导团队可见范围。日报、团队日报、风险与团队周报均通过本地 `/api/local-daily-reports/*`、`/api/local-team/*` 接口提供。
 
 ### 4.4 外部集成与派生数据
 
@@ -138,7 +129,7 @@ Team Server 与本地 Workbench 的边界是 HTTP API；Electron 本地保存草
 
 ### 5.4 工作管理与日报
 
-任务、周重点和 AI 周报通过本地 `/api/tasks`、`/api/weekly-focus` 和 `/api/weekly-report/ai-summary` 接口工作。日报在本地模式优先走 Electron IPC；在线/团队模式则通过 Team Server 的认证和日报接口完成同步。
+任务、周重点和 AI 周报通过本地 `/api/tasks`、`/api/weekly-focus` 和 `/api/weekly-report/ai-summary` 接口工作。日报走本地 `/api/local-daily-reports/*` 接口；Electron 桌面优先通过 IPC 使用本地日报存储。
 
 ## 6. API 能力分组
 
@@ -203,10 +194,11 @@ npm run privacy:scan
 ### 维护关注点
 
 1. `vite-plugin-workbench.mjs` 集中了大量路由和依赖，已经是主要的复杂度中心；继续扩展时宜将路由处理拆到领域 router 或 service adapter。
-2. Vault 的目录、frontmatter 和 CSV/JSON 字段是隐式 API；修改契约时应同步更新索引、页面 fallback、文档和测试。
-3. “本地 SQLite 状态”和“Vault 内容事实源”必须保持职责边界，避免把同一事实写入两处后产生不一致。
-4. Hosted/Worker 形态不能自然获得本地 Vault 和 Node API；部署文档应明确哪些页面是静态可用、哪些页面需要本地运行时。
-5. 外部 OAuth、AI 模型调用和平台导出都属于高变依赖，应该保留配置缺失、超时、限流和数据不完整时的显式状态，而不是用 0 或虚构数据补齐。
+2. **知识库模块不开放是产品红线**：Overview、图谱、Wiki、素材、书架、主题、阅读器与搜索均不对用户开放，调整隐藏范围必须同步所有相关文档（见头部产品方向声明）。
+3. Vault 的目录、frontmatter 和 CSV/JSON 字段是隐式 API（当前仅服务于社媒/抖音读取）；修改契约时应同步更新索引、页面 fallback、文档和测试。
+4. “本地 SQLite 状态”与“外部同步工作数据”必须保持职责边界，避免把同一事实写入两处后产生不一致。
+5. Hosted/Worker 形态不能自然获得本地 Node API；部署文档应明确哪些页面是静态可用、哪些页面需要本地运行时。
+6. 外部 OAuth、AI 模型调用和平台导出都属于高变依赖，应该保留配置缺失、超时、限流和数据不完整时的显式状态，而不是用 0 或虚构数据补齐。
 
 ## 10. 推荐的阅读顺序
 
@@ -214,13 +206,13 @@ npm run privacy:scan
 
 1. `README.md`、`AGENTS.md`：项目目标、数据边界和开发约定。
 2. `package.json`、`vite.config.mjs`：启动脚本、依赖和运行时接线。
-3. `src/App.jsx`、`src/lib/api.js`：路由、页面边界和 API 调用方式。
+3. `src/App.jsx`、`src/components/AppShell.jsx`、`src/lib/api.js`：路由、导航入口和 API 调用方式。
 4. `server/vite-plugin-workbench.mjs`：API 路由总入口与服务组合。
-5. `server/vault-index.mjs`：Vault 扫描、索引和领域数据契约。
-6. `server/codex-runner.mjs`、`server/wiki-ingest-runner.mjs`：Agent/异步工作流。
-7. `electron/`、`team-server/`、`worker/`：桌面、团队和托管形态。
+5. `server/` 领域服务（`tasks.mjs`、`weekly-focus.mjs`、`dingtalk-reports.mjs` 等）：工作管理与钉钉同步。
+6. `server/codex-runner.mjs`：Agent/异步工作流。
+7. `electron/`、`worker/`：桌面和托管形态。
 8. `tests/` 与 `docs/vault-data-contracts.md`：行为约束和数据契约。
 
 ## 11. 一句话结论
 
-这是一个以本地 Markdown Vault 为事实源、以 Vite 自定义 API 插件为应用后端、以 React 为交互层、以 SQLite/Electron/Team Server 承载不同状态与协作场景的模块化个人工作台；它的核心工程风险不在单个 UI 页面，而在 Vault 数据契约、集中式 API 插件和多运行时边界的长期一致性。
+这是一个以钉钉/Outlook 工作数据为同步来源、以 Vite 自定义 API 插件为应用后端、以 React 为交互层、以 SQLite/Electron 承载本地状态与协作场景的模块化个人工作管理平台；知识库（Vault）模块暂不开放，其核心工程风险在于集中式 API 插件、数据契约与多运行时边界的长期一致性。

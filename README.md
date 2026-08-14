@@ -1,19 +1,21 @@
 # Personal AI Workbench
 
-一个本地优先、Vault 驱动的个人知识与工作管理台。它把 Markdown、JSON、CSV 等可读文件作为内容源，用 React + Vite 提供知识浏览、阅读、搜索、图谱、任务、会议、日报和外部服务整合能力。
+一个本地优先的个人工作管理平台。产品定位是对接**钉钉**、**邮箱（Outlook）**数据，并借助 **LLM 进行数据分析**；工作数据**完全存放到本地**，多用户按身份隔离。
 
-项目默认只在本机运行，并提供 synthetic demo 数据。真实知识库、邮件、日历、账号数据和密钥都应保存在仓库之外。
+> **产品方向说明**：本项目中的 Markdown 知识库（Vault）模块**暂不开发、不对用户开放**。Overview 总览、知识图谱、Wiki、素材库、书架、内容主题、文档阅读器和全文搜索等知识库相关模块的入口已隐藏，不作为对外功能；社媒洞察与抖音数据读取仍保留。
+
+项目默认只在本机运行，并提供 synthetic demo 数据。真实邮箱、日历、账号数据和密钥都应保存在仓库之外。
 
 ## 功能概览
 
-- 知识库：Overview、Wiki、Materials、Books、文档阅读器、全文搜索和知识图谱。
-- 阅读工作流：阅读进度、锚点、笔记、解释任务，以及 Wiki ingest 异步任务。
-- 工作管理：待办、周重点、会议视图、周报和 AI 周报摘要。
-- 日报协作：本地日报草稿、Electron 本地存储、团队日报服务、管理员汇总和审计日志。
-- Outlook：Microsoft Graph OAuth 连接、邮件同步、待办分类、归档和断开连接。
+- 工作管理（产品主线）：今日工作（Today）、待办、周重点、周报和 AI 周报摘要。
+- 日报与团队协作：本地日报草稿、Electron 本地存储、团队日报服务、管理员汇总和审计日志。
+- Outlook：Microsoft Graph OAuth 连接、邮件同步、AI 待办分类、归档和断开连接。
 - 钉钉：OAuth 连接、日程与待办同步，并为团队日报提供组织身份认证。
-- Social Insights 与 Douyin：展示 Vault 中已整理的脱敏或 synthetic 数据，不在 Workbench 内抓取其他账号。
+- 内容展示：每日热点（AI HOT 公开匿名 API）、Social Insights 与 Douyin（读取 Vault 中已整理的脱敏或 synthetic 数据，不在 Workbench 内抓取账号）。
 - 多种运行形态：本地 Web、Electron 桌面端，以及面向静态托管的构建产物。
+
+> **暂不开放**：知识库相关模块（Overview、Wiki、Materials、Books、文档阅读器、全文搜索、知识图谱与内容主题）——当前产品方向不开发、不对用户开放，导航入口已隐藏。
 
 ## 快速开始
 
@@ -26,7 +28,7 @@ copy .env.example .env        # Windows；macOS/Linux 使用 cp .env.example .en
 npm run dev
 ```
 
-启动后访问 `http://127.0.0.1:5174`。`npm run dev` 会同时启动 Vite Workbench 和团队日报服务；不配置外部服务时，相关页面会显示未配置状态。
+启动后访问 `http://127.0.0.1:5174`。不配置外部服务时，相关页面会显示未配置状态。
 
 ## 常用命令
 
@@ -39,18 +41,19 @@ npm run privacy:scan     # 扫描仓库和 Demo Vault 的隐私边界
 npm run demo:generate    # 重新生成 synthetic Douyin Demo 数据
 npm run electron:dev     # 启动 Electron 桌面端开发模式
 npm run electron:build   # 构建桌面安装包
-npm run team-data:reset  # 仅在显式允许时清理团队日报数据
 ```
 
-## 接入自己的 Vault
+## 接入自己的 Vault（仅用于社媒/抖音数据读取）
 
-仓库旁边的 `个人知识库/` 是演示 Vault。要接入自己的 Markdown Vault，在 `Workbench/.env` 中设置：
+> 产品方向下，知识库浏览不开放，因此**不需要**接入完整 Vault。仓库旁边的 `个人知识库/` 是演示 Vault，仅用于社媒洞察与抖音数据等已整理数据的读取。
+
+如确需替换数据来源，在 `Workbench/.env` 中设置：
 
 ```dotenv
 PERSONAL_DASHBOARD_VAULT_ROOT=D:/path/to/your-vault
 ```
 
-建议先阅读 [`Workbench/docs/vault-data-contracts.md`](Workbench/docs/vault-data-contracts.md)。页面依赖特定的目录、frontmatter 和字段契约；缺失字段应保持为空，不要用虚构数据填充。真实 Vault 必须放在公开仓库之外。
+建议先阅读 [`Workbench/docs/vault-data-contracts.md`](Workbench/docs/vault-data-contracts.md)。缺失字段应保持为空，不要用虚构数据填充。真实数据必须放在公开仓库之外。
 
 ## 可选服务配置
 
@@ -59,8 +62,6 @@ PERSONAL_DASHBOARD_VAULT_ROOT=D:/path/to/your-vault
 - Outlook 需要 Microsoft Entra 应用、`Mail.Read` / `offline_access` 权限和本地 OAuth 回调；详见 [`Workbench/docs/outlook-one-click-setup.md`](Workbench/docs/outlook-one-click-setup.md)。
 - 钉钉需要应用凭证、OAuth 回调和本地 Token 加密密钥，可同步日程与待办。
 - Outlook 邮件分类需要 `DEEPSEEK_API_KEY`。邮件正文会在用户明确同意后发送给 DeepSeek，应用不在本地保存原始正文。
-- 团队日报服务使用 MySQL，默认监听 `8787`，通过 `TEAM_REPORT_*` 和 `DINGTALK_TEAM_*` 环境变量配置。
-
 未配置这些服务时，核心 Vault 浏览和本地工作管理功能仍可使用。
 
 ## 项目结构
@@ -71,7 +72,6 @@ person_dashboard/
 │  ├─ src/          React 页面、组件和前端状态
 │  ├─ server/       Vite API、Vault 索引、Outlook、钉钉和工作管理服务
 │  ├─ shared/       前后端共享契约与 AI 辅助逻辑
-│  ├─ team-server/  团队日报认证、汇总和 MySQL 适配
 │  ├─ electron/     桌面端主进程、preload 和本地日报存储
 │  ├─ worker/       静态托管 Worker 入口
 │  ├─ scripts/      构建、测试、隐私扫描和 Demo 数据脚本

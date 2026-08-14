@@ -2,9 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $workbenchRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $nodePath = 'C:\Program Files\nodejs\node.exe'
-# Also stop a previously launched legacy team-server so a local-first restart
-# cannot leave it running as an accidental desktop dependency.
-$ports = @(5174, 8787)
+$ports = @(5174)
 
 Set-Location $workbenchRoot
 
