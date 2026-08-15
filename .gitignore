@@ -1,5 +1,6 @@
 Workbench/node_modules/
 Workbench/dist/
+Workbench/build/
 qa/
 .DS_Store
 
